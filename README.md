@@ -23,33 +23,68 @@ pip install git+https://github.com/Mawyxx/lime-agents-sdk.git
 
 ## Quick start
 
-Headless agent worker: your process receives a `login_request_id` from the site backend (queue, webhook, or orchestrator) and approves it with the SDK.
+Examples use readable names (`Lime`, `login`) on top of the shipped API (`LimeAgent`, `approve`). See [API reference](#api-reference) for exact types and parameters.
+
+### Minimal
 
 ```python
-from lime_agents import LimeAgent, PowTimeoutError, ApiError
+from lime_agents import LimeAgent as _LimeAgent
 
 
-class MyAgentWorker:
-    """Autonomous agent that approves site login requests."""
+class Lime(_LimeAgent):
+    """aiogram-style client: token first, login() instead of approve()."""
 
-    def __init__(self, agent_token: str):
-        self.lime = LimeAgent(agent_token=agent_token)
+    def __init__(self, token: str):
+        super().__init__(agent_token=token)
 
-    async def handle_login_request(self, request_id: str) -> str | None:
-        """Called when a site asks this agent to sign in."""
-        try:
-            result = await self.lime.approve(request_id)
-            return result.status  # e.g. "DELIVERED"
-        except PowTimeoutError:
-            # PoW exceeded pow_timeout (default 10s) — retry once
-            result = await self.lime.approve(request_id)
-            return result.status
-        except ApiError as exc:
-            print(f"Login failed [{exc.code}]: {exc.message}")
-            return None
+    async def login(self, request_id: str):
+        return await self.approve(request_id)
+
+
+AGENT_TOKEN = "at_..."  # LIME Owner Portal → agent token (copy once)
+
+async def login_to_site(request_id: str) -> str:
+    """Agent confirms sign-in to a site. Returns status."""
+    result = await Lime(AGENT_TOKEN).login(request_id)
+    return result.status  # "DELIVERED"
 ```
 
-Pass `agent_token` explicitly, or construct `LimeAgent()` with no arguments when `LIME_AGENT_TOKEN` is set in the environment.
+### Production
+
+```python
+from lime_agents import LimeAgent as _LimeAgent, PowTimeoutError, ApiError
+
+
+class Lime(_LimeAgent):
+    def __init__(self, token: str):
+        super().__init__(agent_token=token)
+
+    async def login(self, request_id: str):
+        return await self.approve(request_id)
+
+
+AGENT_TOKEN = "at_..."
+
+
+class Agent:
+    """Autonomous worker that signs in to sites when asked."""
+
+    def __init__(self):
+        self.lime = Lime(AGENT_TOKEN)
+
+    async def on_login_required(self, request_id: str) -> str | None:
+        """Site requires login — agent confirms."""
+        try:
+            result = await self.lime.login(request_id)
+            return result.status
+        except PowTimeoutError:
+            # Proof-of-Work exceeded 10s default — retry once
+            result = await self.lime.login(request_id)
+            return result.status
+        except ApiError as exc:
+            print(f"[{exc.code}] {exc.message}")
+            return None
+```
 
 ## Authentication
 
