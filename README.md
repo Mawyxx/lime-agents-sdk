@@ -45,8 +45,12 @@ AGENT_TOKEN = "at_..."  # LIME Owner Portal → agent token (copy once)
 
 async def login_to_site(request_id: str) -> str:
     """Agent confirms sign-in to a site. Returns status."""
-    result = await Lime(AGENT_TOKEN).login(request_id)
-    return result.status  # "DELIVERED"
+    lime = Lime(AGENT_TOKEN)
+    try:
+        result = await lime.login(request_id)
+        return result.status  # "DELIVERED"
+    finally:
+        await lime.aclose()
 ```
 
 ### Production
@@ -78,9 +82,12 @@ class Agent:
             result = await self.lime.login(request_id)
             return result.status
         except PowTimeoutError:
-            # Proof-of-Work exceeded 10s default — retry once
-            result = await self.lime.login(request_id)
-            return result.status
+            # Proof-of-Work exceeded pow_timeout (default 10s) — retry once
+            try:
+                result = await self.lime.login(request_id)
+                return result.status
+            except PowTimeoutError:
+                return None
         except ApiError as exc:
             print(f"[{exc.code}] {exc.message}")
             return None
@@ -318,20 +325,18 @@ Inject a client for custom TLS, proxies, or tests. **You own the client lifecycl
 import httpx
 from lime_agents import LimeAgent
 
-client = httpx.AsyncClient(
-    timeout=60.0,
-    verify="/path/to/corporate-ca.pem",
-    proxies="http://proxy.corp.example:8080",
-)
 
-agent = LimeAgent(
-    agent_token="at_...",
-    http_client=client,
-)
-try:
-    await agent.approve("lr_abc123")
-finally:
-    await client.aclose()
+async def approve_with_proxy() -> None:
+    client = httpx.AsyncClient(
+        timeout=60.0,
+        verify="/path/to/corporate-ca.pem",
+        proxy="http://proxy.corp.example:8080",
+    )
+    agent = LimeAgent(agent_token="at_...", http_client=client)
+    try:
+        await agent.approve("lr_abc123")
+    finally:
+        await client.aclose()
 ```
 
 ### Retries and timeouts
@@ -339,7 +344,12 @@ finally:
 Retries use exponential backoff with jitter on connection errors, timeouts, and HTTP 408, 429, 500, 502, 503, 504. Each retry attempt is bounded by `max_retries` (default 3).
 
 ```python
-agent = LimeAgent(max_retries=5, timeout=45.0, pow_timeout=20.0)
+agent = LimeAgent(
+    agent_token="at_...",
+    max_retries=5,
+    timeout=45.0,
+    pow_timeout=20.0,
+)
 ```
 
 ### PoW debugging
