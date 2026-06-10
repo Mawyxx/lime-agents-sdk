@@ -296,7 +296,7 @@ If `PowTimeoutError` occurs, increase `pow_timeout` or verify `pow_difficulty` f
 ## Links
 
 - **SDK repository:** [github.com/Mawyxx/lime-agents-sdk](https://github.com/Mawyxx/lime-agents-sdk)
-- **LIME API docs:** [lime.pics/docs](https://lime.pics/docs) (Agent SDK section: [#guide-agentSdk](https://lime.pics/docs#guide-agentSdk))
+- **LIME API docs:** [lime.pics/docs](https://lime.pics/docs)
 - **LIME platform:** [github.com/Mawyxx/Lime](https://github.com/Mawyxx/Lime)
 
 ## License
