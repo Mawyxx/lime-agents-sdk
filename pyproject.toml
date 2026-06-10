@@ -25,7 +25,7 @@ dev = [
 [project.urls]
 Homepage = "https://github.com/Mawyxx/lime-agents-sdk"
 Repository = "https://github.com/Mawyxx/lime-agents-sdk"
-Documentation = "https://lime.pics/docs#guide-agentSdk"
+Documentation = "https://lime.pics/docs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lime_agents"]
