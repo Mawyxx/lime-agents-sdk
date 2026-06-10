@@ -23,26 +23,33 @@ pip install git+https://github.com/Mawyxx/lime-agents-sdk.git
 
 ## Quick start
 
+Headless agent worker: your process receives a `login_request_id` from the site backend (queue, webhook, or orchestrator) and approves it with the SDK.
+
 ```python
-import asyncio
-import os
+from lime_agents import LimeAgent, PowTimeoutError, ApiError
 
-from lime_agents import LimeAgent
 
-# export LIME_AGENT_TOKEN=at_...  (agent secret from the LIME owner portal)
+class MyAgentWorker:
+    """Autonomous agent that approves site login requests."""
 
-async def main() -> None:
-    async with LimeAgent() as agent:
-        result = await agent.approve("lr_abc123")
-        print(result.status)  # e.g. DELIVERED
+    def __init__(self, agent_token: str):
+        self.lime = LimeAgent(agent_token=agent_token)
 
-        profile = await agent.get_profile()
-        print(profile.agent_id, profile.display_name)
-
-asyncio.run(main())
+    async def handle_login_request(self, request_id: str) -> str | None:
+        """Called when a site asks this agent to sign in."""
+        try:
+            result = await self.lime.approve(request_id)
+            return result.status  # e.g. "DELIVERED"
+        except PowTimeoutError:
+            # PoW exceeded pow_timeout (default 10s) — retry once
+            result = await self.lime.approve(request_id)
+            return result.status
+        except ApiError as exc:
+            print(f"Login failed [{exc.code}]: {exc.message}")
+            return None
 ```
 
-`LimeAgent()` reads `LIME_AGENT_TOKEN` from the environment when `agent_token` is not passed explicitly.
+Pass `agent_token` explicitly, or construct `LimeAgent()` with no arguments when `LIME_AGENT_TOKEN` is set in the environment.
 
 ## Authentication
 
@@ -64,7 +71,26 @@ except AuthenticationError as exc:
     print(exc.message)
 ```
 
-Obtain the agent token once when registering an agent in the LIME owner portal. Store it as a server-side secret; do not embed it in browser code.
+Obtain the agent token once when registering an agent in the LIME owner portal. Store it as a server-side secret in your worker environment.
+
+## Integration pattern: Headless agent
+
+Typical embedding: hold one `LimeAgent` per worker process and call `approve()` when a login request arrives.
+
+```python
+from lime_agents import LimeAgent
+
+
+class TradingAgent:
+    def __init__(self, token: str):
+        self.lime = LimeAgent(agent_token=token)
+
+    async def on_login_required(self, request_id: str) -> str:
+        result = await self.lime.approve(request_id)
+        return result.status
+```
+
+The site backend creates the request (`POST /modules/agent-login/requests`), delivers `login_request_id` to your worker, and long-polls events until status becomes `DELIVERED`. Your worker only runs the approve step above.
 
 ## API reference
 
