@@ -134,6 +134,28 @@ class TradingAgent:
 
 The site backend creates the request (`POST /modules/agent-login/requests`), delivers `login_request_id` to your worker, and long-polls events until status becomes `DELIVERED`. Your worker only runs the approve step above.
 
+## Production deployment
+
+For agent workers handling many login jobs, create **one** `LimeAgent` per worker process at startup. Do not use `async with LimeAgent()` inside each job handler — that tears down the HTTP client after every approve.
+
+- Instantiate `LimeAgent` once when the worker starts.
+- Reuse the same instance for all `approve()` and `get_profile()` calls.
+- Optionally pass a shared `httpx.AsyncClient` via `http_client` for connection pooling.
+
+```python
+from lime_agents import LimeAgent
+
+# Created once at worker startup
+agent = LimeAgent()
+
+# Reused in every task
+async def handle_login(request_id: str) -> str:
+    result = await agent.approve(request_id)
+    return result.status
+```
+
+Call `agent.aclose()` only on worker shutdown (or close your injected `http_client` yourself).
+
 ## API reference
 
 ### `LimeAgent`
@@ -363,6 +385,24 @@ logging.getLogger("lime").setLevel(logging.DEBUG)
 ```
 
 If `PowTimeoutError` occurs, increase `pow_timeout` or verify `pow_difficulty` from `GET /auth/requests/{id}` (default 15 on production).
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+ruff check src tests
+mypy src/lime_agents
+pytest --cov=lime_agents --cov-fail-under=100
+```
+
+### Live integration
+
+```bash
+pip install lime-agents-sdk lime-sites-sdk
+LIME_INTEGRATION=1 pytest tests/integration -v
+```
+
+**Full cycle (both SDKs):** see [lime-sait-sdk `tests/integration/test_full_cycle_both_sdks.py`](https://github.com/Mawyxx/lime-sait-sdk/blob/main/tests/integration/test_full_cycle_both_sdks.py) — site `LimeSite` + agent `LimeAgent` against `https://lime.pics/api/v1`. From the LIME monorepo, run on the production VPS (SSE-safe): `python scripts/_run_both_sdks_integration_remote.py`.
 
 ## Links
 
