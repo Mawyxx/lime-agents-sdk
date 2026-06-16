@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from lime_agents import LimeAgent
-from lime_agents._errors import AuthenticationError
+from lime_agents._errors import ApiError, AuthenticationError
 
 
 def _solve_for_test(challenge: str, difficulty: int) -> str:
@@ -29,7 +29,7 @@ def _envelope_ok(data: dict[str, Any]) -> bytes:
 
 
 @pytest.mark.asyncio
-async def test_approve_full_flow() -> None:
+async def test_login_full_flow() -> None:
     challenge = "sdk-test-challenge"
     difficulty = 8
     expected_nonce = _solve_for_test(challenge, difficulty)
@@ -73,7 +73,7 @@ async def test_approve_full_flow() -> None:
         pow_timeout=5.0,
     )
 
-    result = await agent.approve("lr_test")
+    result = await agent.login("lr_test")
     await agent.aclose()
 
     assert result.request_id == "lr_test"
@@ -174,3 +174,108 @@ async def test_context_manager() -> None:
     ) as agent:
         profile = await agent.get_profile()
     assert profile.agent_id == "a"
+
+
+@pytest.mark.asyncio
+async def test_login_empty_request_id_raises() -> None:
+    async with LimeAgent(agent_token="at_x", base_url="http://mock/api/v1") as agent:
+        with pytest.raises(ApiError) as exc:
+            await agent.login("   ")
+    assert exc.value.code == "INVALID_REQUEST_ID"
+    assert exc.value.http_status == 400
+
+
+@pytest.mark.asyncio
+async def test_login_strips_request_id() -> None:
+    challenge = "strip-challenge"
+    difficulty = 8
+    seen_urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_urls.append(str(request.url))
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                content=_envelope_ok(
+                    {
+                        "request_id": "lr_trimmed",
+                        "status": "PENDING",
+                        "pow_challenge": challenge,
+                        "pow_difficulty": difficulty,
+                        "expires_at": "2026-06-10T12:00:00+00:00",
+                    },
+                ),
+            )
+        return httpx.Response(
+            200,
+            content=_envelope_ok(
+                {
+                    "request_id": "lr_trimmed",
+                    "site_id": "site_1",
+                    "status": "DELIVERED",
+                    "expires_at": "2026-06-10T12:00:00+00:00",
+                    "approved_agent_id": "agent_1",
+                },
+            ),
+        )
+
+    transport = httpx.MockTransport(handler)
+    agent = LimeAgent(
+        agent_token="at_secret",
+        base_url="http://mock/api/v1",
+        http_client=httpx.AsyncClient(transport=transport),
+        pow_timeout=5.0,
+    )
+    await agent.login("  lr_trimmed  ")
+    await agent.aclose()
+
+    assert seen_urls[0].endswith("/auth/requests/lr_trimmed")
+    assert seen_urls[1].endswith("/modules/agent-login/requests/lr_trimmed/approve")
+
+
+@pytest.mark.asyncio
+async def test_login_public_get_has_no_agent_token() -> None:
+    challenge = "header-challenge"
+    difficulty = 8
+    public_headers: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            public_headers.update(dict(request.headers))
+            return httpx.Response(
+                200,
+                content=_envelope_ok(
+                    {
+                        "request_id": "lr_hdr",
+                        "status": "PENDING",
+                        "pow_challenge": challenge,
+                        "pow_difficulty": difficulty,
+                        "expires_at": "2026-06-10T12:00:00+00:00",
+                    },
+                ),
+            )
+        assert request.headers.get("X-Agent-Token") == "at_secret"
+        return httpx.Response(
+            200,
+            content=_envelope_ok(
+                {
+                    "request_id": "lr_hdr",
+                    "site_id": "site_1",
+                    "status": "DELIVERED",
+                    "expires_at": "2026-06-10T12:00:00+00:00",
+                    "approved_agent_id": "agent_1",
+                },
+            ),
+        )
+
+    transport = httpx.MockTransport(handler)
+    agent = LimeAgent(
+        agent_token="at_secret",
+        base_url="http://mock/api/v1",
+        http_client=httpx.AsyncClient(transport=transport),
+        pow_timeout=5.0,
+    )
+    await agent.login("lr_hdr")
+    await agent.aclose()
+
+    assert "x-agent-token" not in {k.lower() for k in public_headers}

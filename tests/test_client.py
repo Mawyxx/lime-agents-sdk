@@ -70,6 +70,31 @@ async def test_post_sends_agent_token(client_factory) -> None:
 
 
 @pytest.mark.asyncio
+async def test_external_client_token_header_is_overridden() -> None:
+    seen: dict[str, str | None] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["token"] = request.headers.get("X-Agent-Token")
+        return httpx.Response(200, content=_envelope_ok({"status": "DELIVERED"}))
+
+    http_client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://test",
+        headers={"X-Agent-Token": "stale-token"},
+    )
+    client = LimeClient(
+        agent_token="at_test_token",
+        base_url="http://test/api/v1",
+        timeout=5.0,
+        max_retries=2,
+        http_client=http_client,
+    )
+    await client.post("/modules/agent-login/requests/lr_1/approve", {"pow_nonce": "42"})
+    assert seen["token"] == "at_test_token"
+    await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_api_error_mapping(client_factory) -> None:
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(

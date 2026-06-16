@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lime-agents-sdk"
-version = "0.1.0"
+version = "0.2.0"
 description = "Python SDK for LIME 2.0 agent authentication. Zero-config, Proof-of-Work auto-solve, async-first."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -32,7 +32,11 @@ packages = ["src/lime_agents"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+pythonpath = ["src"]
 testpaths = ["tests"]
+markers = [
+    "integration: live HTTP tests against LIME API (requires LIME_INTEGRATION=1)",
+]
 
 [tool.coverage.run]
 source = ["lime_agents"]

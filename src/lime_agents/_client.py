@@ -36,10 +36,10 @@ class LimeClient:
         self._base_url = base_url.rstrip("/")
         self._max_retries = max_retries
         self._owns_client = http_client is None
-        self._client = http_client or httpx.AsyncClient(
-            timeout=timeout,
-            headers={"Accept": "application/json"},
-        )
+        self._client = http_client or httpx.AsyncClient(timeout=timeout)
+        # Keep one source of truth for auth headers in this class.
+        if "X-Agent-Token" in self._client.headers:
+            self._client.headers.pop("X-Agent-Token")
 
     async def aclose(self) -> None:
         if self._owns_client:
@@ -63,7 +63,7 @@ class LimeClient:
         json_body: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         url = f"{self._base_url}/{path.lstrip('/')}"
-        headers: dict[str, str] = {}
+        headers: dict[str, str] = {"Accept": "application/json"}
         if authenticated:
             headers["X-Agent-Token"] = self._agent_token
             headers["Content-Type"] = "application/json"

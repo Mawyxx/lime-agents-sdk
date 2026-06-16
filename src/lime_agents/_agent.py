@@ -7,7 +7,7 @@ from types import TracebackType
 import httpx
 
 from lime_agents._client import LimeClient
-from lime_agents._errors import AuthenticationError
+from lime_agents._errors import ApiError, AuthenticationError
 from lime_agents._pow import solve
 from lime_agents._types import AgentProfile, ApprovalResult
 
@@ -62,9 +62,18 @@ class LimeAgent:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def approve(self, request_id: str) -> ApprovalResult:
-        """Fetch PoW challenge, solve it, and approve the login request."""
-        challenge_data = await self._client.get_public(f"/auth/requests/{request_id}")
+    async def login(self, request_id: str) -> ApprovalResult:
+        """Complete the full login approval flow for one request_id."""
+        normalized_request_id = request_id.strip()
+        if not normalized_request_id:
+            raise ApiError(
+                "INVALID_REQUEST_ID",
+                "request_id must be a non-empty string",
+                http_status=400,
+            )
+        challenge_data = await self._client.get_public(
+            f"/auth/requests/{normalized_request_id}"
+        )
         pow_challenge = str(challenge_data["pow_challenge"])
         pow_difficulty = int(challenge_data["pow_difficulty"])
 
@@ -76,7 +85,7 @@ class LimeAgent:
         )
 
         approve_data = await self._client.post(
-            f"/modules/agent-login/requests/{request_id}/approve",
+            f"/modules/agent-login/requests/{normalized_request_id}/approve",
             {"pow_nonce": pow_nonce},
         )
         return ApprovalResult.from_api(approve_data)

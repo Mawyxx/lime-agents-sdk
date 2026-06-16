@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/Mawyxx/lime-agents-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/Mawyxx/lime-agents-sdk/actions/workflows/ci.yml)
 
-Official Python SDK for [LIME](https://lime.pics) agent workers. Async-first client that performs site-login approval end-to-end: fetch Proof-of-Work challenge, solve SHA-256 PoW, submit approve with retries.
+Official Python SDK for [LIME](https://lime.pics) agent workers. Async-first client with one public login method: fetch Proof-of-Work challenge, solve SHA-256 PoW, submit approval with retries.
 
 ## Installation
 
@@ -23,7 +23,7 @@ pip install git+https://github.com/Mawyxx/lime-agents-sdk.git
 
 ## Quick start
 
-Examples use readable names (`Lime`, `login`) on top of the shipped API (`LimeAgent`, `approve`). See [API reference](#api-reference) for exact types and parameters.
+Examples use readable names (`Lime`, `login`) on top of the shipped API (`LimeAgent`, `login`). See [API reference](#api-reference) for exact types and parameters.
 
 ### Minimal
 
@@ -32,13 +32,13 @@ from lime_agents import LimeAgent as _LimeAgent
 
 
 class Lime(_LimeAgent):
-    """aiogram-style client: token first, login() instead of approve()."""
+    """aiogram-style client: token first, login() entrypoint."""
 
     def __init__(self, token: str):
         super().__init__(agent_token=token)
 
     async def login(self, request_id: str):
-        return await self.approve(request_id)
+        return await self.login(request_id)
 
 
 AGENT_TOKEN = "at_..."  # LIME Owner Portal → agent token (copy once)
@@ -64,7 +64,7 @@ class Lime(_LimeAgent):
         super().__init__(agent_token=token)
 
     async def login(self, request_id: str):
-        return await self.approve(request_id)
+        return await self.login(request_id)
 
 
 AGENT_TOKEN = "at_..."
@@ -117,7 +117,7 @@ Obtain the agent token once when registering an agent in the LIME owner portal. 
 
 ## Integration pattern: Headless agent
 
-Typical embedding: hold one `LimeAgent` per worker process and call `approve()` when a login request arrives.
+Typical embedding: hold one `LimeAgent` per worker process and call `login()` when a login request arrives.
 
 ```python
 from lime_agents import LimeAgent
@@ -128,18 +128,18 @@ class TradingAgent:
         self.lime = LimeAgent(agent_token=token)
 
     async def on_login_required(self, request_id: str) -> str:
-        result = await self.lime.approve(request_id)
+        result = await self.lime.login(request_id)
         return result.status
 ```
 
-The site backend creates the request (`POST /modules/agent-login/requests`), delivers `login_request_id` to your worker, and long-polls events until status becomes `DELIVERED`. Your worker only runs the approve step above.
+The site backend creates the request (`POST /modules/agent-login/requests`), delivers `login_request_id` to your worker, and long-polls events until status becomes `DELIVERED`. Your worker only runs the login step above.
 
 ## Production deployment
 
-For agent workers handling many login jobs, create **one** `LimeAgent` per worker process at startup. Do not use `async with LimeAgent()` inside each job handler — that tears down the HTTP client after every approve.
+For agent workers handling many login jobs, create **one** `LimeAgent` per worker process at startup. Do not use `async with LimeAgent()` inside each job handler — that tears down the HTTP client after every login request.
 
 - Instantiate `LimeAgent` once when the worker starts.
-- Reuse the same instance for all `approve()` and `get_profile()` calls.
+- Reuse the same instance for all `login()` and `get_profile()` calls.
 - Optionally pass a shared `httpx.AsyncClient` via `http_client` for connection pooling.
 
 ```python
@@ -150,7 +150,7 @@ agent = LimeAgent()
 
 # Reused in every task
 async def handle_login(request_id: str) -> str:
-    result = await agent.approve(request_id)
+    result = await agent.login(request_id)
     return result.status
 ```
 
@@ -160,7 +160,7 @@ Call `agent.aclose()` only on worker shutdown (or close your injected `http_clie
 
 ### `LimeAgent`
 
-Async client for agent-runtime operations (approve login, read profile).
+Async client for agent-runtime operations (login confirmation, read profile).
 
 #### Constructor
 
@@ -187,7 +187,7 @@ agent = LimeAgent(
 
 **Context manager:** `async with LimeAgent() as agent:` calls `aclose()` on exit. Call `await agent.aclose()` manually when not using a context manager.
 
-#### `async approve(request_id: str) -> ApprovalResult`
+#### `async login(request_id: str) -> ApprovalResult`
 
 Confirms a site login request on behalf of the agent.
 
@@ -203,14 +203,14 @@ Confirms a site login request on behalf of the agent.
 |------|------|-------------|
 | `request_id` | `str` | Login request ID from the site backend (`login_request_id` from create). |
 
-**Returns:** `ApprovalResult` with FSM status (typically `DELIVERED` after successful approve).
+**Returns:** `ApprovalResult` with FSM status (typically `DELIVERED` after successful login confirmation).
 
 ```python
 from lime_agents import LimeAgent, PowTimeoutError, ApiError
 
 async with LimeAgent() as agent:
     try:
-        result = await agent.approve("550e8400-e29b-41d4-a716-446655440000")
+        result = await agent.login("550e8400-e29b-41d4-a716-446655440000")
         print(result.status, result.approved_agent_id)
     except PowTimeoutError:
         print("PoW not solved in time; increase pow_timeout or retry")
@@ -236,7 +236,7 @@ async with LimeAgent() as agent:
 
 ### `ApprovalResult`
 
-Frozen dataclass returned by `approve()`.
+Frozen dataclass returned by `login()`.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -244,7 +244,7 @@ Frozen dataclass returned by `approve()`.
 | `site_id` | `str` | Site that created the request |
 | `status` | `str` | FSM value, e.g. `APPROVED`, `DELIVERED` |
 | `expires_at` | `datetime` | Request expiry (timezone-aware when API sends offset) |
-| `approved_agent_id` | `str \| None` | Agent that approved (set after approve) |
+| `approved_agent_id` | `str \| None` | Agent that approved the request |
 
 ### `AgentProfile`
 
@@ -289,7 +289,7 @@ from lime_agents import (
 async def run() -> None:
     try:
         async with LimeAgent() as agent:
-            await agent.approve("lr_abc123")
+            await agent.login("lr_abc123")
     except AuthenticationError as exc:
         print("auth:", exc.message)
     except PowTimeoutError as exc:
@@ -348,7 +348,7 @@ import httpx
 from lime_agents import LimeAgent
 
 
-async def approve_with_proxy() -> None:
+async def login_with_proxy() -> None:
     client = httpx.AsyncClient(
         timeout=60.0,
         verify="/path/to/corporate-ca.pem",
@@ -356,7 +356,7 @@ async def approve_with_proxy() -> None:
     )
     agent = LimeAgent(agent_token="at_...", http_client=client)
     try:
-        await agent.approve("lr_abc123")
+        await agent.login("lr_abc123")
     finally:
         await client.aclose()
 ```
