@@ -23,74 +23,36 @@ pip install git+https://github.com/Mawyxx/lime-agents-sdk.git
 
 ## Quick start
 
-Examples use readable names (`Lime`, `login`) on top of the shipped API (`LimeAgent`, `login`). See [API reference](#api-reference) for exact types and parameters.
-
 ### Minimal
 
 ```python
-from lime_agents import LimeAgent as _LimeAgent
+from lime_agents import LimeAgent
 
-
-class Lime(_LimeAgent):
-    """aiogram-style client: token first, login() entrypoint."""
-
-    def __init__(self, token: str):
-        super().__init__(agent_token=token)
-
-    async def login(self, request_id: str):
-        return await self.login(request_id)
-
-
-AGENT_TOKEN = "at_..."  # LIME Owner Portal → agent token (copy once)
+AGENT_TOKEN = "at_..."
 
 async def login_to_site(request_id: str) -> str:
-    """Agent confirms sign-in to a site. Returns status."""
-    lime = Lime(AGENT_TOKEN)
-    try:
-        result = await lime.login(request_id)
-        return result.status  # "DELIVERED"
-    finally:
-        await lime.aclose()
+    async with LimeAgent(agent_token=AGENT_TOKEN) as agent:
+        result = await agent.login(request_id)
+        return result.status
 ```
 
 ### Production
 
 ```python
-from lime_agents import LimeAgent as _LimeAgent, PowTimeoutError, ApiError
-
-
-class Lime(_LimeAgent):
-    def __init__(self, token: str):
-        super().__init__(agent_token=token)
-
-    async def login(self, request_id: str):
-        return await self.login(request_id)
-
+from lime_agents import LimeAgent, PowTimeoutError, ApiError
 
 AGENT_TOKEN = "at_..."
+agent = LimeAgent(agent_token=AGENT_TOKEN)
 
-
-class Agent:
-    """Autonomous worker that signs in to sites when asked."""
-
-    def __init__(self):
-        self.lime = Lime(AGENT_TOKEN)
-
-    async def on_login_required(self, request_id: str) -> str | None:
-        """Site requires login — agent confirms."""
-        try:
-            result = await self.lime.login(request_id)
-            return result.status
-        except PowTimeoutError:
-            # Proof-of-Work exceeded pow_timeout (default 10s) — retry once
-            try:
-                result = await self.lime.login(request_id)
-                return result.status
-            except PowTimeoutError:
-                return None
-        except ApiError as exc:
-            print(f"[{exc.code}] {exc.message}")
-            return None
+async def on_login_required(request_id: str) -> str | None:
+    try:
+        result = await agent.login(request_id)
+        return result.status
+    except PowTimeoutError:
+        return (await agent.login(request_id)).status
+    except ApiError as exc:
+        print(f"[{exc.code}] {exc.message}")
+        return None
 ```
 
 ## Authentication
