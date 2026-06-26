@@ -3,19 +3,16 @@ from __future__ import annotations
 import asyncio
 import os
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import Any, Literal, cast
 
 import httpx
 
 from lime_agents._client import LimeClient
 from lime_agents._errors import ApiError, AuthenticationError
-from lime_agents._mcp._deps import require_mcp
+from lime_agents._mcp._pool import McpSessionPool
 from lime_agents._oauth import _McpTokenIssuer
 from lime_agents._pow import solve
 from lime_agents._types import AgentProfile, ApprovalResult, McpAccessToken
-
-if TYPE_CHECKING:
-    from lime_agents._mcp._pool import McpSessionPool
 
 _DEFAULT_BASE_URL = "https://lime.pics/api/v1"
 
@@ -114,10 +111,7 @@ class LimeAgent:
         return await self._oauth.get_access_token(force_refresh=force_refresh)
 
     def _get_mcp_pool(self) -> McpSessionPool:
-        require_mcp()
         if self._mcp_pool is None:
-            from lime_agents._mcp._pool import McpSessionPool
-
             self._mcp_pool = McpSessionPool(
                 self._oauth,
                 read_timeout=self._mcp_read_timeout,

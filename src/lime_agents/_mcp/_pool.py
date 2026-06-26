@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, TypeVar
 from urllib.parse import urlparse
 
 from lime_agents._errors import McpAuthenticationError
-from lime_agents._mcp._deps import require_mcp
 from lime_agents._mcp._transport import McpTransportHandle
 
 if TYPE_CHECKING:
@@ -15,8 +14,6 @@ if TYPE_CHECKING:
     from lime_agents._oauth import _McpTokenIssuer
 
 T = TypeVar("T")
-
-_MCP_IMPORT_MESSAGE = "MCP support requires: pip install lime-agents-sdk[mcp]"
 
 
 class _ServerEntry:
@@ -48,7 +45,6 @@ class McpSessionPool:
         connect_timeout: float = 30.0,
         read_timeout: float = 300.0,
     ) -> None:
-        require_mcp()
         self._token_issuer = token_issuer
         self._connect_timeout = connect_timeout
         self._read_timeout = read_timeout

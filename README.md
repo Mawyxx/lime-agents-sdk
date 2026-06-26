@@ -13,12 +13,6 @@ Official Python SDK for [LIME](https://lime.pics) agent workers. Async-first cli
 pip install lime-agents-sdk
 ```
 
-For MCP resource server access (tools, resources, prompts):
-
-```bash
-pip install lime-agents-sdk[mcp]
-```
-
 Install the latest commit from GitHub:
 
 ```bash
@@ -83,7 +77,7 @@ except AuthenticationError as exc:
 
 Obtain the agent token once when registering an agent in the LIME owner portal. Store it as a server-side secret in your worker environment.
 
-## MCP client (v0.3.0)
+## MCP client
 
 LIME uses **two credential lanes** — never mix them:
 
@@ -100,7 +94,6 @@ from lime_agents import LimeAgent
 
 agent = LimeAgent(agent_token=os.getenv("LIME_AGENT_TOKEN"))
 
-# OAuth token only (no [mcp] extra required)
 mcp_jwt = await agent.get_mcp_access_token()
 
 # MCP methods — server_url first (one agent, many servers)
@@ -428,6 +421,11 @@ LIME_MCP_INTEGRATION=1 LIME_AGENT_TOKEN=at_... MCP_SERVER_URL=http://127.0.0.1:9
 **Full cycle (both SDKs):** see [lime-sait-sdk `tests/integration/test_full_cycle_both_sdks.py`](https://github.com/Mawyxx/lime-sait-sdk/blob/main/tests/integration/test_full_cycle_both_sdks.py) — site `LimeSite` + agent `LimeAgent` against `https://lime.pics/api/v1`. From the LIME monorepo, run on the production VPS (SSE-safe): `python scripts/_run_both_sdks_integration_remote.py`.
 
 ## Changelog
+
+### 0.4.0
+
+- MCP client included in default install (`mcp` moved to core dependencies)
+- Removed optional `[mcp]` extra — `pip install lime-agents-sdk` is sufficient
 
 ### 0.3.0
 

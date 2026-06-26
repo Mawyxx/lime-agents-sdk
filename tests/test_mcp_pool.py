@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from lime_agents._errors import McpAuthenticationError
-from lime_agents._mcp._deps import require_mcp
 from lime_agents._mcp._pool import McpSessionPool
 from lime_agents._oauth import _McpTokenIssuer
 
@@ -224,10 +223,6 @@ async def test_refresh_all_tokens_closes_entries() -> None:
         await pool.refresh_all_tokens()
         issuer.invalidate_and_refresh.assert_awaited_once()
         await pool.aclose()
-
-
-def test_require_mcp_passes_when_installed() -> None:
-    require_mcp()
 
 
 @pytest.mark.asyncio

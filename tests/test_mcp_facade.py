@@ -295,17 +295,3 @@ async def test_mcp_aclose_closes_pool() -> None:
         await agent.list_tools("https://mcp.example.com")
     await agent.aclose()
     assert agent._mcp_pool is None  # noqa: SLF001
-
-
-@pytest.mark.asyncio
-async def test_require_mcp_import_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    import lime_agents._agent as agent_module
-
-    def _raise_import() -> None:
-        raise ImportError("MCP support requires: pip install lime-agents-sdk[mcp]")
-
-    monkeypatch.setattr(agent_module, "require_mcp", _raise_import)
-    agent = _agent_with_mock_http()
-    with pytest.raises(ImportError, match="lime-agents-sdk\\[mcp\\]"):
-        await agent.list_tools("https://mcp.example.com")
-    await agent.aclose()
