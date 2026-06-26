@@ -5,12 +5,14 @@ from lime_agents._errors import (
     ApiError,
     AuthenticationError,
     LimeError,
+    McpAuthenticationError,
+    OAuthCapabilityError,
     PowTimeoutError,
     RateLimitError,
 )
-from lime_agents._types import AgentProfile, ApprovalResult
+from lime_agents._types import AgentProfile, ApprovalResult, McpAccessToken
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "AgentProfile",
@@ -19,6 +21,9 @@ __all__ = [
     "AuthenticationError",
     "LimeAgent",
     "LimeError",
+    "McpAccessToken",
+    "McpAuthenticationError",
+    "OAuthCapabilityError",
     "PowTimeoutError",
     "RateLimitError",
     "__version__",

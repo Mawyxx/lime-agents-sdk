@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 
 def _parse_datetime(value: str) -> datetime:
@@ -28,6 +28,14 @@ class ApprovalResult:
                 str(data["approved_agent_id"]) if data.get("approved_agent_id") else None
             ),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class McpAccessToken:
+    access_token: str
+    token_type: Literal["Bearer"]
+    expires_in: int
+    issued_at: float
 
 
 @dataclass(frozen=True, slots=True)

@@ -13,6 +13,12 @@ Official Python SDK for [LIME](https://lime.pics) agent workers. Async-first cli
 pip install lime-agents-sdk
 ```
 
+For MCP resource server access (tools, resources, prompts):
+
+```bash
+pip install lime-agents-sdk[mcp]
+```
+
 Install the latest commit from GitHub:
 
 ```bash
@@ -77,6 +83,53 @@ except AuthenticationError as exc:
 
 Obtain the agent token once when registering an agent in the LIME owner portal. Store it as a server-side secret in your worker environment.
 
+## MCP client (v0.3.0)
+
+LIME uses **two credential lanes** — never mix them:
+
+| Lane | Header | Used for |
+|------|--------|----------|
+| LIME platform | `X-Agent-Token` | `login()`, `get_profile()`, OAuth token issuance |
+| External MCP RS | `Authorization: Bearer <jwt>` | `list_tools`, `call_tool`, resources, prompts |
+
+The SDK issues the MCP JWT automatically via `POST /api/v1/modules/oauth/token` (header only, empty body — [ADR 0081](https://github.com/Mawyxx/Lime/blob/main/docsN/adr/0081-oauth-module-for-mcp.md)). Requires agent capability `oauth:issue`.
+
+```python
+import os
+from lime_agents import LimeAgent
+
+agent = LimeAgent(agent_token=os.getenv("LIME_AGENT_TOKEN"))
+
+# OAuth token only (no [mcp] extra required)
+mcp_jwt = await agent.get_mcp_access_token()
+
+# MCP methods — server_url first (one agent, many servers)
+tools = await agent.list_tools("https://mcp.example.com")
+result = await agent.call_tool("https://mcp.example.com", "echo", {"text": "Hello"})
+resources = await agent.list_resources("https://mcp.example.com")
+templates = await agent.list_resource_templates("https://mcp.example.com")
+prompts = await agent.list_prompts("https://mcp.example.com")
+data = await agent.read_resource("https://mcp.example.com", "file:///data.txt")
+prompt = await agent.get_prompt("https://mcp.example.com", "greet", {"name": "Alice"})
+await agent.set_logging_level("https://mcp.example.com", "info")
+await agent.send_ping("https://mcp.example.com")
+caps = await agent.get_server_capabilities("https://mcp.example.com")
+await agent.send_progress_notification("https://mcp.example.com", "token123", 50.0, 100.0)
+
+# Multiple servers — sessions cached per URL
+await agent.call_tool("https://mcp2.example.com", "get_weather", {"city": "Moscow"})
+
+await agent.aclose()
+```
+
+**Errors:**
+
+| Exception | Meaning |
+|-----------|---------|
+| `AuthenticationError` | Bad or missing `LIME_AGENT_TOKEN` |
+| `OAuthCapabilityError` | Token valid but agent lacks `oauth:issue` |
+| `McpAuthenticationError` | MCP JWT rejected by the resource server |
+
 ## Integration pattern: Headless agent
 
 Typical embedding: hold one `LimeAgent` per worker process and call `login()` when a login request arrives.
@@ -135,6 +188,8 @@ All arguments are keyword-only.
 | `timeout` | `float` | `30.0` | Per-request HTTP timeout in seconds (httpx). |
 | `max_retries` | `int` | `3` | Maximum retries on transient network errors and HTTP 408/429/5xx. |
 | `pow_timeout` | `float` | `10.0` | Wall-clock budget in seconds for the PoW solver loop. |
+| `mcp_token_refresh_skew` | `float` | `30.0` | Refresh MCP JWT this many seconds before `expires_in`. |
+| `mcp_read_timeout` | `float` | `300.0` | MCP streamable HTTP read timeout in seconds. |
 | `http_client` | `httpx.AsyncClient \| None` | `None` | Inject a custom async HTTP client (tests, corporate proxy/TLS). When omitted, the SDK creates and owns a client. |
 
 ```python
@@ -360,11 +415,26 @@ pytest --cov=lime_agents --cov-fail-under=100
 ### Live integration
 
 ```bash
-pip install lime-agents-sdk lime-sites-sdk
-LIME_INTEGRATION=1 pytest tests/integration -v
+pip install -e ".[dev]"
+pytest --cov=lime_agents --cov-fail-under=100
+
+# OAuth token against production/staging
+LIME_INTEGRATION=1 LIME_AGENT_TOKEN=at_... pytest tests/integration/test_oauth_token.py -v
+
+# MCP Bearer lane (mcp_test_server)
+LIME_MCP_INTEGRATION=1 LIME_AGENT_TOKEN=at_... MCP_SERVER_URL=http://127.0.0.1:9000 pytest tests/integration/test_mcp_live.py -m mcp_integration -v
 ```
 
 **Full cycle (both SDKs):** see [lime-sait-sdk `tests/integration/test_full_cycle_both_sdks.py`](https://github.com/Mawyxx/lime-sait-sdk/blob/main/tests/integration/test_full_cycle_both_sdks.py) — site `LimeSite` + agent `LimeAgent` against `https://lime.pics/api/v1`. From the LIME monorepo, run on the production VPS (SSE-safe): `python scripts/_run_both_sdks_integration_remote.py`.
+
+## Changelog
+
+### 0.3.0
+
+- MCP client facade on `LimeAgent` (optional `[mcp]` extra)
+- `get_mcp_access_token()` — OAuth v3 token issuance
+- Session pool per `server_url`, automatic JWT refresh, 401 retry on `call_tool`
+- `py.typed` marker for PEP 561
 
 ## Links
 

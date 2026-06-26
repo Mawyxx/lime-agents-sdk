@@ -50,3 +50,11 @@ class ApiError(LimeError):
             http_status=http_status,
             detail=detail,
         )
+
+
+class OAuthCapabilityError(ApiError):
+    """Agent authenticated but lacks oauth:issue capability."""
+
+
+class McpAuthenticationError(LimeError):
+    """MCP resource server rejected the access token."""

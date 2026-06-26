@@ -54,6 +54,48 @@ class LimeClient:
     async def post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         return await self._request("POST", path, authenticated=True, json_body=body)
 
+    async def post_empty(self, path: str) -> httpx.Response:
+        """POST with empty body (OAuth token endpoint — no LIME envelope)."""
+        return await self._request_raw("POST", path, authenticated=True, json_body=None)
+
+    async def _request_raw(
+        self,
+        method: str,
+        path: str,
+        *,
+        authenticated: bool,
+        json_body: dict[str, Any] | None = None,
+    ) -> httpx.Response:
+        url = f"{self._base_url}/{path.lstrip('/')}"
+        headers: dict[str, str] = {"Accept": "application/json"}
+        if authenticated:
+            headers["X-Agent-Token"] = self._agent_token
+
+        attempt = 0
+        while True:
+            try:
+                response = await self._send(method, url, headers=headers, json_body=json_body)
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                if attempt >= self._max_retries:
+                    raise LimeError(str(exc)) from exc
+                await self._backoff(attempt, method, path)
+                attempt += 1
+                continue
+
+            if response.status_code in _RETRYABLE_STATUS and attempt < self._max_retries:
+                logger.warning(
+                    "Retrying %s %s after HTTP %s (attempt %s)",
+                    method,
+                    path,
+                    response.status_code,
+                    attempt + 1,
+                )
+                await self._backoff(attempt, method, path)
+                attempt += 1
+                continue
+
+            return response
+
     async def _request(
         self,
         method: str,

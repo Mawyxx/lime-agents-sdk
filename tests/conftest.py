@@ -22,12 +22,25 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "integration: live HTTP tests against LIME API (requires LIME_INTEGRATION=1)",
     )
+    config.addinivalue_line(
+        "markers",
+        "mcp_integration: MCP streamable HTTP E2E (requires LIME_MCP_INTEGRATION=1)",
+    )
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    if os.getenv("LIME_INTEGRATION") == "1":
-        return
-    skip = pytest.mark.skip(reason="Set LIME_INTEGRATION=1 to run live API tests")
-    for item in items:
-        if "integration" in item.nodeid.replace("\\", "/"):
-            item.add_marker(skip)
+    if os.getenv("LIME_INTEGRATION") != "1":
+        skip_integration = pytest.mark.skip(
+            reason="Set LIME_INTEGRATION=1 to run live API tests",
+        )
+        for item in items:
+            if item.get_closest_marker("integration"):
+                item.add_marker(skip_integration)
+
+    if os.getenv("LIME_MCP_INTEGRATION") != "1":
+        skip_mcp = pytest.mark.skip(
+            reason="Set LIME_MCP_INTEGRATION=1 to run MCP integration tests",
+        )
+        for item in items:
+            if item.get_closest_marker("mcp_integration"):
+                item.add_marker(skip_mcp)
