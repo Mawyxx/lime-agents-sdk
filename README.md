@@ -86,7 +86,34 @@ LIME uses **two credential lanes** — never mix them:
 | LIME platform | `X-Agent-Token` | `login()`, `get_profile()`, OAuth token issuance |
 | External MCP RS | `Authorization: Bearer <jwt>` | `list_tools`, `call_tool`, resources, prompts |
 
-The SDK issues the MCP JWT automatically via `POST /api/v1/modules/oauth/token` (header only, empty body — [ADR 0081](https://github.com/Mawyxx/Lime/blob/main/docsN/adr/0081-oauth-module-for-mcp.md)). Requires agent capability `oauth:issue`.
+The SDK issues the MCP JWT automatically via `POST /api/v1/modules/oauth/token` (header only, empty body — [ADR 0081](https://github.com/Mawyxx/Lime/blob/main/docsN/adr/0081-oauth-module-for-mcp.md)). Any valid `LIME_AGENT_TOKEN` may issue MCP JWT (OAuth v4).
+
+**MCP endpoint URL:** pass the full streamable HTTP path (e.g. `https://mcp.example.com/mcp`), not only the host.
+
+### Typed MCP responses (v0.5.0+)
+
+```python
+from lime_agents import LimeAgent, Tool, CallToolResult, ServerCapabilities
+
+async with LimeAgent() as agent:
+    endpoint = "https://mcp.example.com/mcp"
+    tools: list[Tool] = await agent.list_tools(endpoint)
+    result: CallToolResult = await agent.call_tool(endpoint, tools[0].name, {"text": "hi"})
+    caps: ServerCapabilities = await agent.get_server_capabilities(endpoint)
+```
+
+Re-exported types: `Tool`, `Resource`, `ResourceTemplate`, `Prompt`, `CallToolResult`, `ReadResourceResult`, `GetPromptResult`, `ServerCapabilities`.
+
+### Advanced MCP (v0.5.0+)
+
+```python
+# Optional: allow concurrent MCP calls to the same server URL (default: serialized)
+agent = LimeAgent(serialize_mcp_per_url=False)
+
+# Low-level session access (holds per-URL lock for the block)
+async with agent.mcp_session("https://mcp.example.com/mcp") as session:
+    await session.list_tools()
+```
 
 ```python
 import os
@@ -96,21 +123,21 @@ agent = LimeAgent(agent_token=os.getenv("LIME_AGENT_TOKEN"))
 
 mcp_jwt = await agent.get_mcp_access_token()
 
-# MCP methods — server_url first (one agent, many servers)
-tools = await agent.list_tools("https://mcp.example.com")
-result = await agent.call_tool("https://mcp.example.com", "echo", {"text": "Hello"})
-resources = await agent.list_resources("https://mcp.example.com")
-templates = await agent.list_resource_templates("https://mcp.example.com")
-prompts = await agent.list_prompts("https://mcp.example.com")
-data = await agent.read_resource("https://mcp.example.com", "file:///data.txt")
-prompt = await agent.get_prompt("https://mcp.example.com", "greet", {"name": "Alice"})
-await agent.set_logging_level("https://mcp.example.com", "info")
-await agent.send_ping("https://mcp.example.com")
-caps = await agent.get_server_capabilities("https://mcp.example.com")
-await agent.send_progress_notification("https://mcp.example.com", "token123", 50.0, 100.0)
+# MCP methods — full /mcp endpoint URL (one agent, many servers)
+tools = await agent.list_tools("https://mcp.example.com/mcp")
+result = await agent.call_tool("https://mcp.example.com/mcp", "echo", {"text": "Hello"})
+resources = await agent.list_resources("https://mcp.example.com/mcp")
+templates = await agent.list_resource_templates("https://mcp.example.com/mcp")
+prompts = await agent.list_prompts("https://mcp.example.com/mcp")
+data = await agent.read_resource("https://mcp.example.com/mcp", "file:///data.txt")
+prompt = await agent.get_prompt("https://mcp.example.com/mcp", "greet", {"name": "Alice"})
+await agent.set_logging_level("https://mcp.example.com/mcp", "info")
+await agent.send_ping("https://mcp.example.com/mcp")
+caps = await agent.get_server_capabilities("https://mcp.example.com/mcp")
+await agent.send_progress_notification("https://mcp.example.com/mcp", "token123", 50.0, 100.0)
 
 # Multiple servers — sessions cached per URL
-await agent.call_tool("https://mcp2.example.com", "get_weather", {"city": "Moscow"})
+await agent.call_tool("https://mcp2.example.com/mcp", "get_weather", {"city": "Moscow"})
 
 await agent.aclose()
 ```
@@ -120,7 +147,7 @@ await agent.aclose()
 | Exception | Meaning |
 |-----------|---------|
 | `AuthenticationError` | Bad or missing `LIME_AGENT_TOKEN` |
-| `OAuthCapabilityError` | Token valid but agent lacks `oauth:issue` |
+| `OAuthCapabilityError` | Legacy capability gate (OAuth v3); v4 issues MCP JWT for any valid agent token |
 | `McpAuthenticationError` | MCP JWT rejected by the resource server |
 
 ## Integration pattern: Headless agent
@@ -414,13 +441,25 @@ pytest --cov=lime_agents --cov-fail-under=100
 # OAuth token against production/staging
 LIME_INTEGRATION=1 LIME_AGENT_TOKEN=at_... pytest tests/integration/test_oauth_token.py -v
 
-# MCP Bearer lane (mcp_test_server)
+# MCP Bearer lane (REST echo on mcp_test_server)
 LIME_MCP_INTEGRATION=1 LIME_AGENT_TOKEN=at_... MCP_SERVER_URL=http://127.0.0.1:9000 pytest tests/integration/test_mcp_live.py -m mcp_integration -v
+
+# Full streamable MCP facade E2E (start monorepo mcp_test_server first)
+LIME_MCP_INTEGRATION=1 LIME_AGENT_TOKEN=at_... MCP_SERVER_URL=http://127.0.0.1:9000 pytest tests/integration/test_mcp_streamable_e2e.py -m mcp_integration -v
+
+# Operator script (from monorepo root): PYTHONPATH=. python scripts/verify/mcp_sdk_e2e.py
 ```
 
 **Full cycle (both SDKs):** see [lime-sait-sdk `tests/integration/test_full_cycle_both_sdks.py`](https://github.com/Mawyxx/lime-sait-sdk/blob/main/tests/integration/test_full_cycle_both_sdks.py) — site `LimeSite` + agent `LimeAgent` against `https://lime.pics/api/v1`. From the LIME monorepo, run on the production VPS (SSE-safe): `python scripts/_run_both_sdks_integration_remote.py`.
 
 ## Changelog
+
+### 0.5.0
+
+- Full MCP typing: re-export `mcp.types` (`Tool`, `CallToolResult`, `ServerCapabilities`, …)
+- `get_server_capabilities()` reads cached `initialize` result (no fragile session API)
+- OAuth refresh single-flight lock; `retry_on_auth` on all MCP facade methods
+- Graceful `aclose()` teardown; `serialize_mcp_per_url` flag; `mcp_session()` context manager
 
 ### 0.4.0
 
@@ -429,7 +468,7 @@ LIME_MCP_INTEGRATION=1 LIME_AGENT_TOKEN=at_... MCP_SERVER_URL=http://127.0.0.1:9
 
 ### 0.3.0
 
-- MCP client facade on `LimeAgent` (optional `[mcp]` extra)
+- MCP client facade on `LimeAgent` (requires `mcp` package; included in core install since v0.4.0)
 - `get_mcp_access_token()` — OAuth v3 token issuance
 - Session pool per `server_url`, automatic JWT refresh, 401 retry on `call_tool`
 - `py.typed` marker for PEP 561

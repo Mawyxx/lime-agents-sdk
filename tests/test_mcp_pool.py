@@ -28,7 +28,19 @@ def _make_issuer() -> _McpTokenIssuer:
     return issuer
 
 
-def _mock_transport_stack(session: AsyncMock) -> Any:
+def _mock_transport_stack(
+    session: AsyncMock,
+    *,
+    init_result: Any | None = None,
+) -> Any:
+    from mcp.types import Implementation, InitializeResult, ServerCapabilities
+
+    default_init = InitializeResult(
+        protocolVersion="2024-11-05",
+        capabilities=ServerCapabilities(),
+        serverInfo=Implementation(name="test-server", version="1.0.0"),
+    )
+
     @asynccontextmanager
     async def fake_streamable_http_client(
         url: str,
@@ -42,10 +54,22 @@ def _mock_transport_stack(session: AsyncMock) -> Any:
 
     @asynccontextmanager
     async def fake_client_session(read_stream: Any, write_stream: Any):
-        session.initialize = AsyncMock()
+        session.initialize = AsyncMock(return_value=init_result or default_init)
         yield session
 
     return fake_streamable_http_client, fake_client_session
+
+
+def _init_result(capabilities: Any) -> Any:
+    from mcp.types import Implementation, InitializeResult, ServerCapabilities
+
+    if not isinstance(capabilities, ServerCapabilities):
+        capabilities = ServerCapabilities()
+    return InitializeResult(
+        protocolVersion="2024-11-05",
+        capabilities=capabilities,
+        serverInfo=Implementation(name="test-server", version="1.0.0"),
+    )
 
 
 @pytest.mark.asyncio
@@ -308,3 +332,56 @@ def test_pool_is_auth_failure_helpers() -> None:
     assert McpSessionPool._is_auth_failure(Exception("HTTP 401 unauthorized")) is True
     assert McpSessionPool._is_auth_failure(Exception("invalid_token")) is True
     assert McpSessionPool._is_auth_failure(Exception("boom")) is False
+
+
+def test_pool_is_shutdown_noise_helpers() -> None:
+    assert McpSessionPool._is_shutdown_noise(asyncio.CancelledError()) is True
+    assert McpSessionPool._is_shutdown_noise(Exception("cancel scope mismatch")) is True
+    assert McpSessionPool._is_shutdown_noise(Exception("boom")) is False
+
+
+@pytest.mark.asyncio
+async def test_pool_get_server_capabilities() -> None:
+    from mcp.types import ServerCapabilities
+
+    session = AsyncMock()
+    caps = ServerCapabilities(tools={})
+    fake_http, fake_session = _mock_transport_stack(session, init_result=_init_result(caps))
+    with (
+        patch("lime_agents._mcp._transport.streamable_http_client", fake_http),
+        patch("lime_agents._mcp._transport.ClientSession", fake_session),
+    ):
+        pool = McpSessionPool(_make_issuer())
+        result = await pool.get_server_capabilities("https://mcp.example.com")
+        assert isinstance(result, ServerCapabilities)
+        assert result.tools is not None
+        await pool.aclose()
+
+
+@pytest.mark.asyncio
+async def test_pool_parallel_when_disabled() -> None:
+    session = AsyncMock()
+    active = {"n": 0}
+    max_active = {"n": 0}
+
+    async def slow_list_tools() -> MagicMock:
+        active["n"] += 1
+        max_active["n"] = max(max_active["n"], active["n"])
+        await asyncio.sleep(0.05)
+        active["n"] -= 1
+        return MagicMock(tools=[])
+
+    session.list_tools = slow_list_tools
+    fake_http, fake_session = _mock_transport_stack(session)
+
+    with (
+        patch("lime_agents._mcp._transport.streamable_http_client", fake_http),
+        patch("lime_agents._mcp._transport.ClientSession", fake_session),
+    ):
+        pool = McpSessionPool(_make_issuer(), serialize_per_url=False)
+        await asyncio.gather(
+            pool.run("https://mcp.example.com", lambda s: s.list_tools()),
+            pool.run("https://mcp.example.com", lambda s: s.list_tools()),
+        )
+        assert max_active["n"] == 2
+        await pool.aclose()

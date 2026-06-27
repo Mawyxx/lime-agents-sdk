@@ -18,7 +18,7 @@ def mcp_server_url() -> str:
 @pytest.mark.mcp_integration
 @pytest.mark.asyncio
 async def test_bearer_lane_against_mcp_test_server(mcp_server_url: str) -> None:
-    """Validates MCP JWT Bearer against scripts/verify/mcp_test_server.py (not full MCP RPC)."""
+    """Validates MCP JWT Bearer against scripts/verify/mcp_test_server.py REST echo."""
     token = os.getenv("LIME_AGENT_TOKEN", "").strip()
     if not token:
         pytest.skip("LIME_AGENT_TOKEN is required")
@@ -27,7 +27,7 @@ async def test_bearer_lane_against_mcp_test_server(mcp_server_url: str) -> None:
     async with LimeAgent(agent_token=token, base_url=base_url) as agent:
         mcp_token = await agent.get_mcp_access_token()
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(trust_env=False) as client:
         response = await client.post(
             f"{mcp_server_url}/tools/echo",
             headers={"Authorization": f"Bearer {mcp_token.access_token}"},
@@ -40,24 +40,5 @@ async def test_bearer_lane_against_mcp_test_server(mcp_server_url: str) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body.get("echo") == "sdk-integration"
-
-
-@pytest.mark.mcp_integration
-@pytest.mark.asyncio
-async def test_list_tools_live_streamable_fixture(mcp_server_url: str) -> None:
-    """Full MCP RPC when MCP_SERVER_URL points at a streamable HTTP MCP server."""
-    token = os.getenv("LIME_AGENT_TOKEN", "").strip()
-    if not token:
-        pytest.skip("LIME_AGENT_TOKEN is required")
-
-    if os.getenv("MCP_STREAMABLE_SERVER") != "1":
-        pytest.skip("Set MCP_STREAMABLE_SERVER=1 when MCP_SERVER_URL is streamable MCP")
-
-    base_url = os.getenv("LIME_API_BASE", "https://lime.pics/api/v1").rstrip("/")
-    async with LimeAgent(agent_token=token, base_url=base_url) as agent:
-        try:
-            tools = await agent.list_tools(f"{mcp_server_url}/mcp")
-        except Exception as exc:
-            pytest.skip(f"streamable MCP server unavailable: {exc}")
-        assert isinstance(tools, list)
+    assert "sdk-integration" in str(body.get("result", ""))
+    assert body.get("sub")

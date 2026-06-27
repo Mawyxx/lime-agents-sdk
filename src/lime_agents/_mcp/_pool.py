@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+import logging
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import TYPE_CHECKING, TypeVar
 from urllib.parse import urlparse
+
+from anyio import BrokenResourceError
+from mcp.types import ServerCapabilities
 
 from lime_agents._errors import McpAuthenticationError
 from lime_agents._mcp._transport import McpTransportHandle
@@ -14,6 +19,16 @@ if TYPE_CHECKING:
     from lime_agents._oauth import _McpTokenIssuer
 
 T = TypeVar("T")
+
+logger = logging.getLogger("lime.agents.mcp")
+
+
+class _NullAsyncContext(AbstractAsyncContextManager[None]):
+    async def __aenter__(self) -> None:
+        return None
+
+    async def __aexit__(self, *_args: object) -> None:
+        return None
 
 
 class _ServerEntry:
@@ -27,6 +42,7 @@ class _ServerEntry:
     ) -> None:
         self.url = url
         self.lock = asyncio.Lock()
+        self.connect_lock = asyncio.Lock()
         self.transport = McpTransportHandle(
             url,
             token_issuer,
@@ -44,10 +60,12 @@ class McpSessionPool:
         *,
         connect_timeout: float = 30.0,
         read_timeout: float = 300.0,
+        serialize_per_url: bool = True,
     ) -> None:
         self._token_issuer = token_issuer
         self._connect_timeout = connect_timeout
         self._read_timeout = read_timeout
+        self._serialize_per_url = serialize_per_url
         self._entries: dict[str, _ServerEntry] = {}
         self._pool_lock = asyncio.Lock()
         self._closed = False
@@ -64,25 +82,39 @@ class McpSessionPool:
 
         normalized = self._normalize_url(server_url)
         entry = await self._get_entry(normalized)
+        lock_ctx = entry.lock if self._serialize_per_url else _NullAsyncContext()
 
+        async with lock_ctx:
+            return await self._execute_operation(entry, operation, retry_on_auth=retry_on_auth)
+
+    async def get_server_capabilities(self, server_url: str) -> ServerCapabilities:
+        if self._closed:
+            raise RuntimeError("MCP session pool is closed")
+
+        normalized = self._normalize_url(server_url)
+        entry = await self._get_entry(normalized)
+        lock_ctx = entry.lock if self._serialize_per_url else _NullAsyncContext()
+
+        async with lock_ctx:
+            async with entry.connect_lock:
+                await entry.transport.ensure_open()
+            caps = entry.transport.server_capabilities
+            return caps if caps is not None else ServerCapabilities()
+
+    @asynccontextmanager
+    async def session(self, server_url: str) -> AsyncIterator[ClientSession]:
+        if self._closed:
+            raise RuntimeError("MCP session pool is closed")
+
+        normalized = self._normalize_url(server_url)
+        entry = await self._get_entry(normalized)
         async with entry.lock:
+            async with entry.connect_lock:
+                mcp_session = await entry.transport.ensure_open()
             try:
-                session = await entry.transport.ensure_open()
-                return await operation(session)
-            except Exception as exc:
-                if not retry_on_auth or not self._is_auth_failure(exc):
-                    raise
-                await self._refresh_after_auth_failure(entry)
-                session = await entry.transport.ensure_open()
-                try:
-                    return await operation(session)
-                except Exception as retry_exc:
-                    if self._is_auth_failure(retry_exc):
-                        raise McpAuthenticationError(
-                            "MCP access token rejected by resource server",
-                            code="MCP_AUTH_FAILED",
-                        ) from retry_exc
-                    raise
+                yield mcp_session
+            finally:
+                pass
 
     async def refresh_all_tokens(self) -> None:
         await self._token_issuer.invalidate_and_refresh()
@@ -97,9 +129,61 @@ class McpSessionPool:
         async with self._pool_lock:
             entries = list(self._entries.values())
             self._entries.clear()
-        for entry in entries:
-            async with entry.lock:
-                await entry.transport.close()
+        await asyncio.sleep(0.15)
+
+        async def close_entry(entry: _ServerEntry) -> None:
+            try:
+                async with entry.lock:
+                    await entry.transport.close()
+            except BaseException as exc:
+                if McpSessionPool._is_shutdown_noise(exc):
+                    return
+                raise
+
+        results = await asyncio.gather(
+            *[close_entry(entry) for entry in entries],
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, BaseException) and not self._is_shutdown_noise(result):
+                logger.warning("MCP pool close error: %s", result)
+
+    async def _execute_operation(
+        self,
+        entry: _ServerEntry,
+        operation: Callable[[ClientSession], Awaitable[T]],
+        *,
+        retry_on_auth: bool,
+    ) -> T:
+        last_exc: BaseException | None = None
+        for attempt in range(2):
+            try:
+                async with entry.connect_lock:
+                    session = await entry.transport.ensure_open()
+                return await operation(session)
+            except Exception as exc:
+                last_exc = exc
+                if attempt == 0 and self._is_broken_session(exc):
+                    async with entry.connect_lock:
+                        await entry.transport.close()
+                    continue
+                if not retry_on_auth or not self._is_auth_failure(exc):
+                    raise
+                await self._refresh_after_auth_failure(entry)
+                async with entry.connect_lock:
+                    session = await entry.transport.ensure_open()
+                try:
+                    return await operation(session)
+                except Exception as retry_exc:
+                    if self._is_auth_failure(retry_exc):
+                        raise McpAuthenticationError(
+                            "MCP access token rejected by resource server",
+                            code="MCP_AUTH_FAILED",
+                        ) from retry_exc
+                    raise
+        if last_exc is None:  # pragma: no cover
+            raise RuntimeError("MCP operation failed without exception")
+        raise last_exc  # pragma: no cover
 
     async def _refresh_after_auth_failure(self, entry: _ServerEntry) -> None:
         await self._token_issuer.invalidate_and_refresh()
@@ -110,7 +194,8 @@ class McpSessionPool:
                 continue
             async with pool_entry.lock:
                 await pool_entry.transport.close()
-        await entry.transport.close()
+        async with entry.connect_lock:
+            await entry.transport.close()
 
     async def _get_entry(self, normalized_url: str) -> _ServerEntry:
         async with self._pool_lock:
@@ -134,6 +219,24 @@ class McpSessionPool:
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("server_url must be an http(s) URL")
         return normalized
+
+    @staticmethod
+    def _is_broken_session(exc: BaseException) -> bool:
+        if isinstance(exc, (BrokenResourceError, asyncio.CancelledError)):
+            return True
+        if isinstance(exc, ExceptionGroup):
+            return any(McpSessionPool._is_broken_session(sub) for sub in exc.exceptions)
+        message = str(exc).lower()
+        return "brokenresource" in message or "cancel scope" in message
+
+    @staticmethod
+    def _is_shutdown_noise(exc: BaseException) -> bool:
+        if isinstance(exc, (asyncio.CancelledError, BrokenResourceError)):
+            return True
+        if isinstance(exc, ExceptionGroup):
+            return all(McpSessionPool._is_shutdown_noise(sub) for sub in exc.exceptions)
+        message = str(exc).lower()
+        return "cancel scope" in message or "session termination failed" in message
 
     @staticmethod
     def _is_auth_failure(exc: BaseException) -> bool:

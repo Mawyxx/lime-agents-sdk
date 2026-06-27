@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any, NoReturn
 
@@ -27,6 +28,7 @@ class _McpTokenIssuer:
         self._refresh_skew = refresh_skew
         self._cached: McpAccessToken | None = None
         self._generation = 0
+        self._refresh_lock = asyncio.Lock()
 
     @property
     def generation(self) -> int:
@@ -35,10 +37,18 @@ class _McpTokenIssuer:
     async def get_access_token(self, *, force_refresh: bool = False) -> McpAccessToken:
         if not force_refresh and self._cached is not None and not self._is_expired(self._cached):
             return self._cached
-        token = await self._issue_token()
-        self._cached = token
-        self._generation += 1
-        return token
+
+        async with self._refresh_lock:
+            if (
+                not force_refresh
+                and self._cached is not None
+                and not self._is_expired(self._cached)
+            ):
+                return self._cached
+            token = await self._issue_token()
+            self._cached = token
+            self._generation += 1
+            return token
 
     async def invalidate_and_refresh(self) -> McpAccessToken:
         return await self.get_access_token(force_refresh=True)

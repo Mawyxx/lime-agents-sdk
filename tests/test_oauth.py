@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 
@@ -391,6 +392,66 @@ async def test_oauth_rfc6749_generic_api_error() -> None:
     with pytest.raises(ApiError) as exc:
         await issuer.get_access_token()
     assert exc.value.code == "server_error"
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_oauth_concurrent_refresh_single_flight() -> None:
+    calls = {"n": 0}
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return _token_response()
+
+    client = LimeClient(
+        agent_token="at_test",
+        base_url="http://test/api/v1",
+        timeout=5.0,
+        max_retries=0,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    issuer = _McpTokenIssuer(client, refresh_skew=30.0)
+    await asyncio.gather(*[issuer.get_access_token() for _ in range(20)])
+    assert calls["n"] == 1
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_oauth_double_check_cache_after_lock() -> None:
+    calls = {"n": 0}
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return _token_response()
+
+    client = LimeClient(
+        agent_token="at_test",
+        base_url="http://test/api/v1",
+        timeout=5.0,
+        max_retries=0,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    issuer = _McpTokenIssuer(client, refresh_skew=30.0)
+    issuer._cached = None  # noqa: SLF001
+
+    async def slow_issue() -> McpAccessToken:
+        calls["n"] += 1
+        await asyncio.sleep(0.05)
+        return McpAccessToken(
+            access_token="eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZ2VudF8xIn0.sig",
+            token_type="Bearer",
+            expires_in=3600,
+            issued_at=time.monotonic(),
+        )
+
+    issuer._issue_token = slow_issue  # type: ignore[method-assign]
+
+    async def waiter() -> McpAccessToken:
+        await asyncio.sleep(0.01)
+        return await issuer.get_access_token()
+
+    await asyncio.gather(issuer.get_access_token(), waiter())
+    assert calls["n"] == 1
     await client.aclose()
 
 

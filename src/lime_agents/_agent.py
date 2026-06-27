@@ -2,10 +2,23 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from types import TracebackType
 from typing import Any, Literal, cast
 
 import httpx
+from mcp import ClientSession
+from mcp.types import (
+    CallToolResult,
+    GetPromptResult,
+    Prompt,
+    ReadResourceResult,
+    Resource,
+    ResourceTemplate,
+    ServerCapabilities,
+    Tool,
+)
 
 from lime_agents._client import LimeClient
 from lime_agents._errors import ApiError, AuthenticationError
@@ -15,6 +28,7 @@ from lime_agents._pow import solve
 from lime_agents._types import AgentProfile, ApprovalResult, McpAccessToken
 
 _DEFAULT_BASE_URL = "https://lime.pics/api/v1"
+_MCP_RETRY_ON_AUTH = True
 
 
 class LimeAgent:
@@ -30,6 +44,7 @@ class LimeAgent:
         pow_timeout: float = 10.0,
         mcp_token_refresh_skew: float = 30.0,
         mcp_read_timeout: float = 300.0,
+        serialize_mcp_per_url: bool = True,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         resolved_token = (agent_token or os.getenv("LIME_AGENT_TOKEN") or "").strip()
@@ -46,6 +61,7 @@ class LimeAgent:
 
         self._pow_timeout = pow_timeout
         self._mcp_read_timeout = mcp_read_timeout
+        self._serialize_mcp_per_url = serialize_mcp_per_url
         self._client = LimeClient(
             agent_token=resolved_token,
             base_url=resolved_base,
@@ -115,13 +131,21 @@ class LimeAgent:
             self._mcp_pool = McpSessionPool(
                 self._oauth,
                 read_timeout=self._mcp_read_timeout,
+                serialize_per_url=self._serialize_mcp_per_url,
             )
         return self._mcp_pool
 
-    async def list_tools(self, server_url: str) -> list[Any]:
+    @asynccontextmanager
+    async def mcp_session(self, server_url: str) -> AsyncIterator[ClientSession]:
+        """Hold an MCP session lock for advanced low-level calls on one server URL."""
+        async with self._get_mcp_pool().session(server_url) as session:
+            yield session
+
+    async def list_tools(self, server_url: str) -> list[Tool]:
         result = await self._get_mcp_pool().run(
             server_url,
             lambda session: session.list_tools(),
+            retry_on_auth=_MCP_RETRY_ON_AUTH,
         )
         return list(result.tools)
 
@@ -130,49 +154,54 @@ class LimeAgent:
         server_url: str,
         name: str,
         arguments: dict[str, Any] | None = None,
-    ) -> Any:
+    ) -> CallToolResult:
         return await self._get_mcp_pool().run(
             server_url,
             lambda session: session.call_tool(name, arguments or {}),
-            retry_on_auth=True,
+            retry_on_auth=_MCP_RETRY_ON_AUTH,
         )
 
-    async def list_resources(self, server_url: str) -> list[Any]:
+    async def list_resources(self, server_url: str) -> list[Resource]:
         result = await self._get_mcp_pool().run(
             server_url,
             lambda session: session.list_resources(),
+            retry_on_auth=_MCP_RETRY_ON_AUTH,
         )
         return list(result.resources)
 
-    async def list_resource_templates(self, server_url: str) -> list[Any]:
+    async def list_resource_templates(self, server_url: str) -> list[ResourceTemplate]:
         result = await self._get_mcp_pool().run(
             server_url,
             lambda session: session.list_resource_templates(),
+            retry_on_auth=_MCP_RETRY_ON_AUTH,
         )
         return list(result.resourceTemplates)
 
-    async def list_prompts(self, server_url: str) -> list[Any]:
+    async def list_prompts(self, server_url: str) -> list[Prompt]:
         result = await self._get_mcp_pool().run(
             server_url,
             lambda session: session.list_prompts(),
+            retry_on_auth=_MCP_RETRY_ON_AUTH,
         )
         return list(result.prompts)
 
-    async def read_resource(self, server_url: str, uri: str) -> Any:
+    async def read_resource(self, server_url: str, uri: str) -> ReadResourceResult:
         return await self._get_mcp_pool().run(
             server_url,
             lambda session: session.read_resource(cast(Any, uri)),
+            retry_on_auth=_MCP_RETRY_ON_AUTH,
         )
 
     async def get_prompt(
         self,
         server_url: str,
         name: str,
-        arguments: dict[str, Any] | None = None,
-    ) -> Any:
+        arguments: dict[str, str] | None = None,
+    ) -> GetPromptResult:
         return await self._get_mcp_pool().run(
             server_url,
             lambda session: session.get_prompt(name, arguments or {}),
+            retry_on_auth=_MCP_RETRY_ON_AUTH,
         )
 
     async def set_logging_level(
@@ -192,25 +221,18 @@ class LimeAgent:
         await self._get_mcp_pool().run(
             server_url,
             lambda session: session.set_logging_level(level),
+            retry_on_auth=_MCP_RETRY_ON_AUTH,
         )
 
     async def send_ping(self, server_url: str) -> None:
         await self._get_mcp_pool().run(
             server_url,
             lambda session: session.send_ping(),
+            retry_on_auth=_MCP_RETRY_ON_AUTH,
         )
 
-    async def get_server_capabilities(self, server_url: str) -> dict[str, Any]:
-        async def _fetch(session: Any) -> dict[str, Any]:
-            capabilities = await session.get_server_capabilities()
-            if capabilities is None:
-                return {}
-            if hasattr(capabilities, "model_dump"):
-                dumped = capabilities.model_dump(exclude_none=True)
-                return dumped if isinstance(dumped, dict) else {}
-            return {}
-
-        return await self._get_mcp_pool().run(server_url, _fetch)
+    async def get_server_capabilities(self, server_url: str) -> ServerCapabilities:
+        return await self._get_mcp_pool().get_server_capabilities(server_url)
 
     async def send_progress_notification(
         self,
@@ -226,4 +248,5 @@ class LimeAgent:
                 progress,
                 total,
             ),
+            retry_on_auth=_MCP_RETRY_ON_AUTH,
         )

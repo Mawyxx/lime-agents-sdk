@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from mcp.types import Implementation, InitializeResult, ServerCapabilities
 
 from lime_agents import LimeAgent
 from lime_agents._types import McpAccessToken
@@ -35,6 +36,17 @@ def _agent_with_mock_http() -> LimeAgent:
     )
 
 
+def _init_result(
+    *,
+    capabilities: ServerCapabilities | None = None,
+) -> InitializeResult:
+    return InitializeResult(
+        protocolVersion="2024-11-05",
+        capabilities=capabilities or ServerCapabilities(tools={}),
+        serverInfo=Implementation(name="test-server", version="1.0.0"),
+    )
+
+
 def _mock_mcp_session() -> AsyncMock:
     session = AsyncMock()
     session.list_tools.return_value = MagicMock(tools=[MagicMock(name="echo")])
@@ -46,8 +58,8 @@ def _mock_mcp_session() -> AsyncMock:
     session.get_prompt.return_value = MagicMock(messages=[])
     session.set_logging_level.return_value = MagicMock()
     session.send_ping.return_value = MagicMock()
-    session.get_server_capabilities.return_value = MagicMock(model_dump=lambda **_: {"tools": {}})
     session.send_progress_notification = AsyncMock()
+    session.initialize = AsyncMock(return_value=_init_result())
     return session
 
 
@@ -64,7 +76,6 @@ async def _mcp_transport_patches(session: AsyncMock):
 
     @asynccontextmanager
     async def fake_client_session(read_stream: Any, write_stream: Any):
-        session.initialize = AsyncMock()
         yield session
 
     with (
@@ -178,40 +189,25 @@ async def test_get_server_capabilities() -> None:
     agent = _agent_with_mock_http()
     async with _mcp_transport_patches(session):
         caps = await agent.get_server_capabilities("https://mcp.example.com")
-    assert caps == {"tools": {}}
+    assert isinstance(caps, ServerCapabilities)
+    assert caps.tools is not None
     await agent.aclose()
 
 
 @pytest.mark.asyncio
-async def test_get_server_capabilities_none() -> None:
+async def test_get_server_capabilities_empty_when_missing() -> None:
     session = _mock_mcp_session()
-    session.get_server_capabilities.return_value = None
+    session.initialize = AsyncMock(
+        return_value=InitializeResult(
+            protocolVersion="2024-11-05",
+            capabilities=ServerCapabilities(),
+            serverInfo=Implementation(name="test-server", version="1.0.0"),
+        ),
+    )
     agent = _agent_with_mock_http()
     async with _mcp_transport_patches(session):
         caps = await agent.get_server_capabilities("https://mcp.example.com")
-    assert caps == {}
-    await agent.aclose()
-
-
-@pytest.mark.asyncio
-async def test_get_server_capabilities_without_model_dump() -> None:
-    session = _mock_mcp_session()
-    session.get_server_capabilities.return_value = object()
-    agent = _agent_with_mock_http()
-    async with _mcp_transport_patches(session):
-        caps = await agent.get_server_capabilities("https://mcp.example.com")
-    assert caps == {}
-    await agent.aclose()
-
-
-@pytest.mark.asyncio
-async def test_get_server_capabilities_non_dict_dump() -> None:
-    session = _mock_mcp_session()
-    session.get_server_capabilities.return_value = MagicMock(model_dump=lambda **_: "bad")
-    agent = _agent_with_mock_http()
-    async with _mcp_transport_patches(session):
-        caps = await agent.get_server_capabilities("https://mcp.example.com")
-    assert caps == {}
+    assert isinstance(caps, ServerCapabilities)
     await agent.aclose()
 
 
@@ -222,6 +218,16 @@ async def test_send_progress_notification() -> None:
     async with _mcp_transport_patches(session):
         await agent.send_progress_notification("https://mcp.example.com", "tok", 50.0, 100.0)
     session.send_progress_notification.assert_awaited_once_with("tok", 50.0, 100.0)
+    await agent.aclose()
+
+
+@pytest.mark.asyncio
+async def test_mcp_session_context_manager() -> None:
+    session = _mock_mcp_session()
+    agent = _agent_with_mock_http()
+    async with _mcp_transport_patches(session):
+        async with agent.mcp_session("https://mcp.example.com") as mcp_session:
+            assert mcp_session is session
     await agent.aclose()
 
 
@@ -242,7 +248,6 @@ async def test_mcp_session_cached() -> None:
     @asynccontextmanager
     async def counting_session(read_stream: Any, write_stream: Any):
         open_count["n"] += 1
-        session.initialize = AsyncMock()
         yield session
 
     agent = _agent_with_mock_http()
@@ -273,7 +278,6 @@ async def test_mcp_multiple_servers() -> None:
     @asynccontextmanager
     async def counting_session(read_stream: Any, write_stream: Any):
         open_count["n"] += 1
-        session.initialize = AsyncMock()
         yield session
 
     agent = _agent_with_mock_http()
