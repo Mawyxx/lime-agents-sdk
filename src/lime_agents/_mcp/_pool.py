@@ -221,20 +221,29 @@ class McpSessionPool:
         return normalized
 
     @staticmethod
+    def _exception_group_members(exc: BaseException) -> tuple[BaseException, ...] | None:
+        members = getattr(exc, "exceptions", None)
+        if members is not None and type(exc).__name__ == "ExceptionGroup":
+            return tuple(members)
+        return None
+
+    @staticmethod
     def _is_broken_session(exc: BaseException) -> bool:
-        if isinstance(exc, (BrokenResourceError, asyncio.CancelledError)):
+        if isinstance(exc, BrokenResourceError | asyncio.CancelledError):
             return True
-        if isinstance(exc, ExceptionGroup):
-            return any(McpSessionPool._is_broken_session(sub) for sub in exc.exceptions)
+        group = McpSessionPool._exception_group_members(exc)
+        if group is not None:
+            return any(McpSessionPool._is_broken_session(sub) for sub in group)
         message = str(exc).lower()
         return "brokenresource" in message or "cancel scope" in message
 
     @staticmethod
     def _is_shutdown_noise(exc: BaseException) -> bool:
-        if isinstance(exc, (asyncio.CancelledError, BrokenResourceError)):
+        if isinstance(exc, asyncio.CancelledError | BrokenResourceError):
             return True
-        if isinstance(exc, ExceptionGroup):
-            return all(McpSessionPool._is_shutdown_noise(sub) for sub in exc.exceptions)
+        group = McpSessionPool._exception_group_members(exc)
+        if group is not None:
+            return all(McpSessionPool._is_shutdown_noise(sub) for sub in group)
         message = str(exc).lower()
         return "cancel scope" in message or "session termination failed" in message
 

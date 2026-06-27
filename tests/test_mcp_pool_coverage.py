@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio
+import sys
 from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -10,6 +10,12 @@ from mcp.types import ServerCapabilities
 
 from lime_agents._mcp._pool import McpSessionPool
 from lime_agents._oauth import _McpTokenIssuer
+
+
+def _exception_group_cls() -> type[BaseException]:
+    import builtins
+
+    return builtins.ExceptionGroup
 
 
 def _make_issuer() -> _McpTokenIssuer:
@@ -129,18 +135,21 @@ async def test_pool_session_context_manager_yields_session() -> None:
         await pool.aclose()
 
 
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="ExceptionGroup requires Python 3.11+")
 def test_pool_is_shutdown_noise_exception_group() -> None:
-    group = ExceptionGroup(
+    exc_group = _exception_group_cls()
+    group = exc_group(
         "shutdown",
         [Exception("cancel scope mismatch"), Exception("session termination failed")],
     )
     assert McpSessionPool._is_shutdown_noise(group) is True
-    mixed = ExceptionGroup("mixed", [RuntimeError("boom")])
+    mixed = exc_group("mixed", [RuntimeError("boom")])
     assert McpSessionPool._is_shutdown_noise(mixed) is False
 
 
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="ExceptionGroup requires Python 3.11+")
 def test_pool_is_broken_session_exception_group() -> None:
-    group = ExceptionGroup("broken", [Exception("brokenresource in stream")])
+    group = _exception_group_cls()("broken", [Exception("brokenresource in stream")])
     assert McpSessionPool._is_broken_session(group) is True
 
 
