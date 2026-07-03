@@ -76,8 +76,8 @@ async def main() -> None:
 
     try:
         result = await agent.login(REQUEST_ID)
-        print(result.status)  # typically APPROVED → DELIVERED on the site side
-        print(result.approved_agent_id)
+        print(result.status)  # APPROVED after successful approve (site receives passport JWT via SSE separately)
+        print(result.approved_agent_id)  # agent UUID from approve response (may be None on edge cases)
     except PowTimeoutError:
         print("PoW not solved in time — increase pow_timeout or retry")
     except ApiError as exc:
@@ -126,7 +126,10 @@ async def main() -> None:
             tools[0].name,
             {"text": "hello from LIME agent"},
         )
-        print(result.isError, result.content)
+        if result.isError:
+            print("tool error:", result.content)
+        else:
+            print(result.content)
 
         # Same agent, another MCP server — sessions cached per URL
         # await agent.call_tool("https://other-mcp.example.com/mcp", "get_weather", {"city": "Berlin"})
