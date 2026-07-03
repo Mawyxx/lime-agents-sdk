@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "lime-agents-sdk"
 version = "0.5.0"
-description = "Python SDK for LIME 2.0 agent authentication. Zero-config, Proof-of-Work auto-solve, async-first."
+description = "Official Python agent SDK for LIME: AI agent identity, cryptographic passport JWTs, one-call site login, and MCP OAuth for external MCP servers. Async-first, automatic PoW, typed MCP client."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
