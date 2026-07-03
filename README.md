@@ -2,7 +2,7 @@
 
 **`lime-agents-sdk`** is the official **Python agent SDK** for [LIME](https://lime.pics) — an **AI agent identity** platform that issues **cryptographic passports** (signed JWTs) for autonomous workers. Agent runtimes authenticate with a single opaque **`X-Agent-Token`**, confirm site logins in one async call, and connect to **MCP** resource servers via **MCP OAuth** — without browsers, QR codes, or hand-rolled HTTP.
 
-Use this package when you build **agent workers** (not site backends). Pair with [`lime-sites-sdk`](https://pypi.org/project/lime-sites-sdk/) on the site side for login creation, SSE delivery, and passport verification.
+Use this package when you build **agent workers** (not site backends). Pair with [`lime-sites-sdk`](https://github.com/Mawyxx/lime-site-sdk) on the site side for login creation, SSE delivery, and passport verification.
 
 [![PyPI version](https://img.shields.io/pypi/v/lime-agents-sdk)](https://pypi.org/project/lime-agents-sdk/)
 [![Python versions](https://img.shields.io/pypi/pyversions/lime-agents-sdk)](https://pypi.org/project/lime-agents-sdk/)
@@ -10,7 +10,8 @@ Use this package when you build **agent workers** (not site backends). Pair with
 [![CI](https://github.com/Mawyxx/lime-agents-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/Mawyxx/lime-agents-sdk/actions/workflows/ci.yml)
 [![MCP compatible](https://img.shields.io/badge/MCP-compatible-00C853)](https://modelcontextprotocol.io/)
 
-**📖 Full documentation:** [https://lime.pics/docs](https://lime.pics/docs#guide-agentSdk)  
+**📖 Platform API docs:** [https://lime.pics/docs](https://lime.pics/docs#guide-agentSdk)  
+**📦 This SDK:** [github.com/Mawyxx/lime-agents-sdk](https://github.com/Mawyxx/lime-agents-sdk)  
 **🌐 Platform:** [https://lime.pics](https://lime.pics)
 
 ---
@@ -30,7 +31,7 @@ LIME uses **two different JWT artifacts**. This SDK covers the **agent worker** 
 
 | Flow | Who gets the JWT | Audience / use | This SDK |
 |------|------------------|----------------|---------|
-| **Site login passport** | **Site backend** (via SSE) | `aud=lime-site-login` — cryptographic passport for the logged-in session | Agent calls `login()` only; site verifies JWT with [`lime-sites-sdk`](https://pypi.org/project/lime-sites-sdk/) + Core JWKS |
+| **Site login passport** | **Site backend** (via SSE) | `aud=lime-site-login` — cryptographic passport for the logged-in session | Agent calls `login()` only; site verifies JWT with [`lime-sites-sdk`](https://github.com/Mawyxx/lime-site-sdk) + Core JWKS |
 | **MCP access token** | **Agent worker** (in-process) | `aud=mcp` — Bearer token for **external** MCP resource servers | `get_mcp_access_token()` or MCP facade methods (auto-issue + cache) |
 
 The MCP JWT is signed with LIME Core keys (JWKS at `GET /api/v1/core/.well-known/jwks.json`). Default TTL is **300 seconds (5 minutes)**. The SDK caches it and refreshes ~30s before expiry so repeated `list_tools` / `call_tool` calls stay fast. **MCP JWTs are rejected on LIME HTTP APIs** — only opaque `X-Agent-Token` works there.
@@ -94,7 +95,7 @@ asyncio.run(main())
 2. Solve PoW in a thread pool (`asyncio.to_thread`)
 3. `POST /api/v1/modules/agent-login/requests/{request_id}/approve` with `X-Agent-Token` + `{"pow_nonce": "..."}`
 
-**Site side (separate package):** `lime-sites-sdk` → `create_login_request()` → SSE `on_login` → `verify_passport()` against Core JWKS. See [Site SDK guide](https://lime.pics/docs#guide-siteSdk).
+**Site side (separate package):** [`lime-sites-sdk`](https://github.com/Mawyxx/lime-site-sdk) → `create_login_request()` → SSE `on_login` → `verify_passport()` against Core JWKS.
 
 ---
 
@@ -141,7 +142,7 @@ asyncio.run(main())
 | LIME platform | `X-Agent-Token` | `login()`, `get_profile()`, `POST .../oauth/token` |
 | External MCP RS | `Authorization: Bearer <mcp_jwt>` | `list_tools`, `call_tool`, resources, prompts |
 
-OAuth issuance: `POST /api/v1/modules/oauth/token` — **header only, empty body** ([MCP OAuth ADR](https://github.com/Mawyxx/Lime/blob/main/docsN/adr/0081-oauth-module-for-mcp.md)). Resource servers verify the JWT via Core JWKS — use [`lime-mcp-server-sdk`](https://pypi.org/project/lime-mcp-server-sdk/) on the server side.
+OAuth issuance: `POST /api/v1/modules/oauth/token` — **header only, empty body** ([MCP OAuth ADR](https://github.com/Mawyxx/Lime/blob/main/docsN/adr/0081-oauth-module-for-mcp.md)). Resource servers verify the JWT via Core JWKS — use [`lime-mcp-server-sdk`](https://github.com/Mawyxx/lime-mcp-server-sdk) on the server side.
 
 ---
 
@@ -193,8 +194,8 @@ All inherit from `LimeError`: `AuthenticationError`, `PowTimeoutError`, `RateLim
 
 | Package | Role |
 |---------|------|
-| [`lime-sites-sdk`](https://pypi.org/project/lime-sites-sdk/) | Site backend: create login, SSE events, **verify site passport JWT** |
-| [`lime-mcp-server-sdk`](https://pypi.org/project/lime-mcp-server-sdk/) | MCP resource server: **verify MCP Bearer JWT** via Core JWKS |
+| [`lime-sites-sdk`](https://github.com/Mawyxx/lime-site-sdk) | Site backend: create login, SSE events, **verify site passport JWT** |
+| [`lime-mcp-server-sdk`](https://github.com/Mawyxx/lime-mcp-server-sdk) | MCP resource server: **verify MCP Bearer JWT** via Core JWKS |
 
 ---
 
