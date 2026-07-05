@@ -11,6 +11,8 @@ def _parse_datetime(value: str) -> datetime:
 
 @dataclass(frozen=True, slots=True)
 class ApprovalResult:
+    """Outcome of ``LimeAgent.login()`` approve step."""
+
     request_id: str
     site_id: str
     status: str
@@ -19,6 +21,7 @@ class ApprovalResult:
 
     @classmethod
     def from_api(cls, data: dict[str, Any]) -> ApprovalResult:
+        """Parse approve response envelope ``data`` object."""
         return cls(
             request_id=str(data["request_id"]),
             site_id=str(data["site_id"]),
@@ -32,6 +35,8 @@ class ApprovalResult:
 
 @dataclass(frozen=True, slots=True)
 class McpAccessToken:
+    """Short-lived MCP OAuth JWT and metadata from ``get_mcp_access_token()``."""
+
     access_token: str
     token_type: Literal["Bearer"]
     expires_in: int
@@ -40,6 +45,8 @@ class McpAccessToken:
 
 @dataclass(frozen=True, slots=True)
 class AgentProfile:
+    """Authenticated agent profile from Core API."""
+
     agent_id: str
     owner_id: str
     display_name: str | None
@@ -50,12 +57,19 @@ class AgentProfile:
 
     @classmethod
     def from_api(cls, data: dict[str, Any]) -> AgentProfile:
+        """Parse profile JSON; accepts wire ``user_id`` / ``user_kyc_level`` aliases."""
+        owner_id = data.get("owner_id") or data.get("user_id")
+        if owner_id is None:
+            raise KeyError("owner_id")
+        owner_kyc_level = data.get("owner_kyc_level")
+        if owner_kyc_level is None:
+            owner_kyc_level = data.get("user_kyc_level")
         return cls(
             agent_id=str(data["agent_id"]),
-            owner_id=str(data["owner_id"]),
+            owner_id=str(owner_id),
             display_name=data.get("display_name"),
             avatar_url=data.get("avatar_url"),
             description=data.get("description"),
-            owner_kyc_level=data.get("owner_kyc_level"),
+            owner_kyc_level=owner_kyc_level,
             agent_reputation=data.get("agent_reputation"),
         )

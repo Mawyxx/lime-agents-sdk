@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 import pytest
 
-from lime_agents import LimeAgent
+from lime_agents import AgentProfile, LimeAgent
 from lime_agents._errors import ApiError, AuthenticationError
 
 
@@ -123,6 +123,42 @@ async def test_get_profile_parses_fields() -> None:
     assert profile.description == "helper"
     assert profile.owner_kyc_level == 0
     assert profile.agent_reputation == 10
+
+
+@pytest.mark.asyncio
+async def test_get_profile_accepts_user_id_alias() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=_envelope_ok(
+                {
+                    "agent_id": "agent_1",
+                    "user_id": "user_1",
+                    "display_name": "Bot",
+                    "avatar_url": None,
+                    "description": None,
+                    "user_kyc_level": 3,
+                    "agent_reputation": 0,
+                },
+            ),
+        )
+
+    transport = httpx.MockTransport(handler)
+    agent = LimeAgent(
+        agent_token="at_secret",
+        base_url="http://mock/api/v1",
+        http_client=httpx.AsyncClient(transport=transport),
+    )
+    profile = await agent.get_profile()
+    await agent.aclose()
+
+    assert profile.owner_id == "user_1"
+    assert profile.owner_kyc_level == 3
+
+
+def test_agent_profile_from_api_requires_owner_or_user_id() -> None:
+    with pytest.raises(KeyError, match="owner_id"):
+        AgentProfile.from_api({"agent_id": "a1"})
 
 
 def test_missing_token_raises() -> None:

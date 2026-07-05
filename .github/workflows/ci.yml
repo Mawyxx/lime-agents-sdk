@@ -36,6 +36,20 @@ jobs:
       - name: Pytest (100% coverage)
         run: pytest --cov=lime_agents --cov-fail-under=100
 
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package and docs tools
+        run: pip install -r docs/requirements.txt && pip install .
+      - name: Build docs
+        run: mkdocs build --strict -f docs/mkdocs.yml
+
   publish:
     needs: quality
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')

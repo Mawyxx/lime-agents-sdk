@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lime-agents-sdk"
-version = "0.5.3"
+version = "0.5.4"
 description = "Official Python agent SDK for LIME: AI agent identity, cryptographic passport JWTs, one-call site login, and MCP OAuth for external MCP servers. Async-first, automatic PoW, typed MCP client."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -22,11 +22,17 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
 ]
+docs = [
+    "mkdocs>=1.5.3",
+    "mkdocs-material>=9.5.0",
+    "mkdocstrings[python]>=0.24.0",
+    "griffe>=0.40.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/Mawyxx/lime-agents-sdk"
 Repository = "https://github.com/Mawyxx/lime-agents-sdk"
-Documentation = "https://lime.pics/docs"
+Documentation = "https://lime-agents-sdk.readthedocs.io/"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lime_agents"]

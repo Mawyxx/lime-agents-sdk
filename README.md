@@ -8,9 +8,11 @@ Use this package when you build **agent workers** (not site backends). Pair with
 [![Python versions](https://img.shields.io/pypi/pyversions/lime-agents-sdk)](https://pypi.org/project/lime-agents-sdk/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/Mawyxx/lime-agents-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/Mawyxx/lime-agents-sdk/actions/workflows/ci.yml)
+[![Documentation](https://readthedocs.org/projects/lime-agents-sdk/badge/?version=latest)](https://lime-agents-sdk.readthedocs.io/)
 [![MCP compatible](https://img.shields.io/badge/MCP-compatible-00C853)](https://modelcontextprotocol.io/)
 
-**📖 Platform API docs:** [https://lime.pics/docs](https://lime.pics/docs#guide-agentSdk)  
+**📖 Python API (Read the Docs):** [lime-agents-sdk.readthedocs.io](https://lime-agents-sdk.readthedocs.io/)  
+**📖 Platform HTTP docs:** [lime.pics/docs#guide-agentSdk](https://lime.pics/docs#guide-agentSdk)  
 **📦 This SDK:** [github.com/Mawyxx/lime-agents-sdk](https://github.com/Mawyxx/lime-agents-sdk)  
 **🌐 Platform:** [https://lime.pics](https://lime.pics)
 
@@ -22,7 +24,7 @@ Use this package when you build **agent workers** (not site backends). Pair with
 |---------|----------------|
 | Manual PoW + approve HTTP | `await agent.login(request_id)` — challenge fetch, SHA-256 PoW, approve, retries |
 | Two auth lanes (LIME vs MCP) | `X-Agent-Token` for LIME APIs; short-lived **MCP JWT** for external MCP servers |
-| MCP OAuth boilerplate | `get_mcp_access_token()` + typed `list_tools` / `call_tool` facade |
+| MCP OAuth boilerplate | `list_tools` / `call_tool` auto-issue + cache MCP JWT; optional `get_mcp_access_token()` for the raw token |
 | Fragile agent credentials | Env-based `LIME_AGENT_TOKEN` (Stripe-style), typed errors, `py.typed` |
 
 ### Two JWT flows (do not mix them)
@@ -32,9 +34,9 @@ LIME uses **two different JWT artifacts**. This SDK covers the **agent worker** 
 | Flow | Who gets the JWT | Audience / use | This SDK |
 |------|------------------|----------------|---------|
 | **Site login passport** | **Site backend** (via SSE) | `aud=lime-site-login` — cryptographic passport for the logged-in session | Agent calls `login()` only; site verifies JWT with [`lime-sites-sdk`](https://github.com/Mawyxx/lime-site-sdk) + Core JWKS |
-| **MCP access token** | **Agent worker** (in-process) | `aud=mcp` — Bearer token for **external** MCP resource servers | `get_mcp_access_token()` or MCP facade methods (auto-issue + cache) |
+| **MCP access token** | **Agent worker** (cached in SDK; not sent to site) | `aud=mcp` — Bearer token for **external** MCP resource servers | MCP facade methods auto-issue + cache; optional `get_mcp_access_token()` if you need the raw JWT |
 
-The MCP JWT is signed with LIME Core keys (JWKS at `GET /api/v1/core/.well-known/jwks.json`). Default TTL is **300 seconds (5 minutes)**. The SDK caches it and refreshes ~30s before expiry so repeated `list_tools` / `call_tool` calls stay fast. **MCP JWTs are rejected on LIME HTTP APIs** — only opaque `X-Agent-Token` works there.
+The MCP JWT is signed with LIME Core keys (JWKS at `GET /api/v1/core/.well-known/jwks.json`). Default TTL is **300 seconds (5 minutes)**. The SDK caches it in your worker and refreshes ~30s before expiry; you send it to **remote** MCP servers as `Authorization: Bearer` — not to the site backend. **MCP JWTs are rejected on LIME HTTP APIs** — only opaque `X-Agent-Token` works there.
 
 ---
 
@@ -114,10 +116,7 @@ MCP_ENDPOINT = "https://mcp.example.com/mcp"  # full streamable HTTP path, not j
 
 async def main() -> None:
     async with LimeAgent(agent_token=os.environ["LIME_AGENT_TOKEN"]) as agent:
-        # Optional: inspect the cached OAuth token (TTL ~300s, auto-refresh)
-        token = await agent.get_mcp_access_token()
-        print(f"MCP JWT expires_in={token.expires_in}s")
-
+        # MCP JWT (~300s TTL) is fetched automatically on first list_tools / call_tool
         tools: list[Tool] = await agent.list_tools(MCP_ENDPOINT)
         print([t.name for t in tools])
 
@@ -168,7 +167,7 @@ OAuth issuance: `POST /api/v1/modules/oauth/token` — **header only, empty body
 |--------|-------------|
 | `await agent.login(request_id)` | Site login approve flow → `ApprovalResult` |
 | `await agent.get_profile()` | `GET /core/agents/me/profile` → `AgentProfile` |
-| `await agent.get_mcp_access_token()` | MCP OAuth JWT (~300s TTL), cached with refresh skew |
+| `await agent.get_mcp_access_token()` | Optional: expose cached MCP OAuth JWT (~300s TTL); not required before MCP calls |
 | `await agent.list_tools(server_url)` | MCP tools (typed `Tool`) |
 | `await agent.call_tool(server_url, name, args)` | MCP tool invocation → `CallToolResult` |
 | `await agent.list_resources(...)` / `read_resource(...)` / `list_prompts(...)` / `get_prompt(...)` | Full MCP facade |

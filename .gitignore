@@ -24,6 +24,7 @@ coverage.xml
 # Build artifacts
 dist/
 build/
+site/
 *.egg-info/
 *.egg
 

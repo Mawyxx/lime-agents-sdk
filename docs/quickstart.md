@@ -1,0 +1,72 @@
+# Quick Start
+
+## Scenario A — Site login (headless approve)
+
+The site backend creates a login request and hands `request_id` to your agent worker.
+Your worker runs PoW + approve; the **site** receives the passport JWT over SSE
+(separately via [`lime-sites-sdk`](https://lime-sites-sdk.readthedocs.io/)).
+
+```python
+import asyncio
+import os
+
+from lime_agents import LimeAgent
+
+async def main() -> None:
+    async with LimeAgent(agent_token=os.environ["LIME_AGENT_TOKEN"]) as agent:
+        result = await agent.login("lr_from_your_site_queue")
+        print(result.status)  # APPROVED
+
+asyncio.run(main())
+```
+
+**What happens internally:**
+
+1. `GET /auth/requests/{id}` — fetch PoW challenge (no auth)
+2. Solve SHA-256 PoW in a thread pool
+3. `POST .../approve` with `X-Agent-Token` and `pow_nonce`
+
+## Scenario B — MCP tools (automatic OAuth)
+
+MCP JWT is **fetched and cached automatically** on the first MCP call. You do **not**
+need `get_mcp_access_token()` for normal usage.
+
+```python
+import asyncio
+import os
+
+from lime_agents import LimeAgent
+
+MCP_URL = "https://your-mcp-server.example/mcp"
+
+async def main() -> None:
+    async with LimeAgent(agent_token=os.environ["LIME_AGENT_TOKEN"]) as agent:
+        tools = await agent.list_tools(MCP_URL)
+        print(len(tools))  # list[Tool], not tools.tools
+        if tools:
+            result = await agent.call_tool(MCP_URL, tools[0].name, {})
+            print(result.content)
+
+asyncio.run(main())
+```
+
+## Environment variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `LIME_AGENT_TOKEN` | Yes* | Agent secret from LIME portal |
+| `LIME_API_BASE` | No | Default `https://lime.pics/api/v1` |
+
+\*Unless passed as `agent_token=` to `LimeAgent()`.
+
+## Optional: raw MCP JWT
+
+Use `get_mcp_access_token()` only when you need the JWT string itself (custom HTTP
+client, debugging, or passing to another process):
+
+```python
+token = await agent.get_mcp_access_token()
+print(token.expires_in)
+```
+
+See [LIME platform docs](https://lime.pics/docs) for HTTP reference.

@@ -1,0 +1,69 @@
+# Examples
+
+## Full site-login worker
+
+```python
+import asyncio
+import os
+
+from lime_agents import ApiError, LimeAgent, PowTimeoutError
+
+async def approve_login(request_id: str) -> None:
+    async with LimeAgent(agent_token=os.environ["LIME_AGENT_TOKEN"]) as agent:
+        try:
+            result = await agent.login(request_id)
+            print(result.status, result.approved_agent_id)
+        except PowTimeoutError:
+            print("PoW timeout — retry or increase pow_timeout")
+        except ApiError as exc:
+            print(exc.code, exc.message)
+
+asyncio.run(approve_login("lr_abc123"))
+```
+
+Pair with [`lime-sites-sdk`](https://lime-sites-sdk.readthedocs.io/) on the site side.
+
+## Multiple MCP servers
+
+One `LimeAgent` pools sessions per server URL:
+
+```python
+async with LimeAgent() as agent:
+    tools_a = await agent.list_tools("https://mcp-a.example/mcp")
+    tools_b = await agent.list_tools("https://mcp-b.example/mcp")
+    print(len(tools_a), len(tools_b))
+```
+
+## Error handling
+
+```python
+from lime_agents import (
+    ApiError,
+    LimeAgent,
+    McpAuthenticationError,
+    PowTimeoutError,
+)
+
+async with LimeAgent() as agent:
+    try:
+        await agent.login(request_id)
+    except PowTimeoutError:
+        ...
+    except ApiError as exc:
+        if exc.code == "REQUEST_EXPIRED":
+            ...
+
+    try:
+        await agent.call_tool(mcp_url, "echo", {"text": "hi"})
+    except McpAuthenticationError:
+        ...
+```
+
+## Anti-patterns
+
+| Mistake | Correct approach |
+|---------|------------------|
+| `get_mcp_access_token()` before every MCP call | JWT auto-issued on `list_tools` / `call_tool` |
+| `len(tools.tools)` | `list_tools()` returns `list[Tool]` — use `len(tools)` |
+| Bearer MCP JWT on LIME APIs | Use `X-Agent-Token` for LIME; Bearer only on external MCP RS |
+| Expect `owner_id` in raw API JSON | Wire field is `user_id`; SDK maps to `AgentProfile.owner_id` |

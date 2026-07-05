@@ -32,7 +32,15 @@ _MCP_RETRY_ON_AUTH = True
 
 
 class LimeAgent:
-    """Async client for LIME agent workers."""
+    """Async client for LIME agent workers.
+
+    Wraps site-login approve (PoW + ``X-Agent-Token``) and MCP OAuth client calls to
+    external resource servers. MCP JWTs are issued and cached automatically on
+    ``list_tools`` / ``call_tool`` — use ``get_mcp_access_token()`` only when you need
+    the raw JWT string.
+
+    See `LIME platform docs <https://lime.pics/docs#guide-agentSdk>`_ for HTTP details.
+    """
 
     def __init__(
         self,
@@ -47,6 +55,22 @@ class LimeAgent:
         serialize_mcp_per_url: bool = True,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
+        """Create an agent client.
+
+        Args:
+            agent_token: Opaque agent secret (default from ``LIME_AGENT_TOKEN`` env).
+            base_url: API root including ``/api/v1`` (default ``LIME_API_BASE``).
+            timeout: HTTP timeout seconds for LIME platform calls.
+            max_retries: Retries on transient 408/429/5xx responses.
+            pow_timeout: Max seconds to solve PoW before ``PowTimeoutError``.
+            mcp_token_refresh_skew: Refresh MCP JWT this many seconds before expiry.
+            mcp_read_timeout: MCP streamable HTTP read timeout seconds.
+            serialize_mcp_per_url: Serialize MCP calls per server URL when True.
+            http_client: Injectable ``httpx.AsyncClient`` for tests.
+
+        Raises:
+            AuthenticationError: When no agent token is configured.
+        """
         resolved_token = (agent_token or os.getenv("LIME_AGENT_TOKEN") or "").strip()
         if not resolved_token:
             raise AuthenticationError(
@@ -90,7 +114,21 @@ class LimeAgent:
         await self._client.aclose()
 
     async def login(self, request_id: str) -> ApprovalResult:
-        """Complete the full login approval flow for one request_id."""
+        """Complete site-login approve for one ``request_id``.
+
+        Fetches PoW challenge, solves it, and posts approve with ``X-Agent-Token``.
+        The site backend receives the passport JWT separately via SSE.
+
+        Args:
+            request_id: Login request id from the site backend (``login_request_id``).
+
+        Returns:
+            ``ApprovalResult`` with status and optional ``approved_agent_id``.
+
+        Raises:
+            ApiError: Invalid request id or approve rejected by API.
+            PowTimeoutError: PoW not solved within ``pow_timeout``.
+        """
         normalized_request_id = request_id.strip()
         if not normalized_request_id:
             raise ApiError(
@@ -123,7 +161,18 @@ class LimeAgent:
         return AgentProfile.from_api(profile_data)
 
     async def get_mcp_access_token(self, *, force_refresh: bool = False) -> McpAccessToken:
-        """Issue a short-lived MCP JWT via POST /modules/oauth/token (X-Agent-Token only)."""
+        """Return a cached MCP OAuth JWT (optional — MCP facade methods auto-issue).
+
+        Args:
+            force_refresh: When True, bypass cache and request a new token.
+
+        Returns:
+            ``McpAccessToken`` with ``access_token``, ``expires_in``, and ``issued_at``.
+
+        Note:
+            Prefer ``list_tools`` / ``call_tool`` for normal MCP usage. This method is
+            for integrators who need the raw JWT (custom HTTP clients, debugging).
+        """
         return await self._oauth.get_access_token(force_refresh=force_refresh)
 
     def _get_mcp_pool(self) -> McpSessionPool:
@@ -142,6 +191,16 @@ class LimeAgent:
             yield session
 
     async def list_tools(self, server_url: str) -> list[Tool]:
+        """List tools on an external MCP resource server.
+
+        OAuth JWT is fetched and attached automatically on first call.
+
+        Args:
+            server_url: Full streamable HTTP MCP endpoint (e.g. ``https://host/mcp``).
+
+        Returns:
+            List of ``Tool`` models (not a wrapper with ``.tools`` attribute).
+        """
         result = await self._get_mcp_pool().run(
             server_url,
             lambda session: session.list_tools(),
@@ -155,6 +214,16 @@ class LimeAgent:
         name: str,
         arguments: dict[str, Any] | None = None,
     ) -> CallToolResult:
+        """Invoke a tool on an external MCP resource server.
+
+        Args:
+            server_url: Full streamable HTTP MCP endpoint.
+            name: Tool name from ``list_tools``.
+            arguments: JSON-serializable tool arguments.
+
+        Returns:
+            ``CallToolResult`` from the MCP protocol.
+        """
         return await self._get_mcp_pool().run(
             server_url,
             lambda session: session.call_tool(name, arguments or {}),
@@ -162,6 +231,7 @@ class LimeAgent:
         )
 
     async def list_resources(self, server_url: str) -> list[Resource]:
+        """List resources exposed by an external MCP server."""
         result = await self._get_mcp_pool().run(
             server_url,
             lambda session: session.list_resources(),
@@ -170,6 +240,7 @@ class LimeAgent:
         return list(result.resources)
 
     async def list_resource_templates(self, server_url: str) -> list[ResourceTemplate]:
+        """List resource templates on an external MCP server."""
         result = await self._get_mcp_pool().run(
             server_url,
             lambda session: session.list_resource_templates(),
@@ -178,6 +249,7 @@ class LimeAgent:
         return list(result.resourceTemplates)
 
     async def list_prompts(self, server_url: str) -> list[Prompt]:
+        """List prompts on an external MCP server."""
         result = await self._get_mcp_pool().run(
             server_url,
             lambda session: session.list_prompts(),
@@ -186,6 +258,7 @@ class LimeAgent:
         return list(result.prompts)
 
     async def read_resource(self, server_url: str, uri: str) -> ReadResourceResult:
+        """Read a resource URI from an external MCP server."""
         return await self._get_mcp_pool().run(
             server_url,
             lambda session: session.read_resource(cast(Any, uri)),
@@ -198,6 +271,7 @@ class LimeAgent:
         name: str,
         arguments: dict[str, str] | None = None,
     ) -> GetPromptResult:
+        """Fetch a prompt template from an external MCP server."""
         return await self._get_mcp_pool().run(
             server_url,
             lambda session: session.get_prompt(name, arguments or {}),
@@ -232,6 +306,7 @@ class LimeAgent:
         )
 
     async def get_server_capabilities(self, server_url: str) -> ServerCapabilities:
+        """Return cached server capabilities from the MCP session initialize handshake."""
         return await self._get_mcp_pool().get_server_capabilities(server_url)
 
     async def send_progress_notification(

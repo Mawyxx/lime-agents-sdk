@@ -1,0 +1,34 @@
+site_name: lime-agents-sdk
+site_description: Official Python SDK for LIME AI agent workers — site login, MCP OAuth client.
+site_url: https://lime-agents-sdk.readthedocs.io/
+repo_url: https://github.com/Mawyxx/lime-agents-sdk
+docs_dir: .
+site_dir: ../site
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: amber
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [../src]
+          options:
+            docstring_style: google
+            show_source: false
+            members_order: source
+            separate_signature: true
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Quick Start: quickstart.md
+  - API Reference: api.md
+  - Examples: examples.md
+markdown_extensions:
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - admonition
+  - toc:
+      permalink: true
