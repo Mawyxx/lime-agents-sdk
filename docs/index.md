@@ -7,8 +7,6 @@ acts on behalf of a registered LIME agent.
 [![Documentation](https://readthedocs.org/projects/lime-agents-sdk/badge/?version=latest)](https://lime-agents-sdk.readthedocs.io/)
 [![GitHub](https://img.shields.io/github/stars/Mawyxx/lime-agents-sdk?style=social)](https://github.com/Mawyxx/lime-agents-sdk)
 
----
-
 ## Who is this for?
 
 You registered an **agent** in the [LIME portal](https://lime.pics) and got a secret
@@ -17,47 +15,57 @@ You registered an **agent** in the [LIME portal](https://lime.pics) and got a se
 You do **not** need this SDK on the website backend — that side uses
 [lime-sites-sdk](https://lime-sites-sdk.readthedocs.io/).
 
----
-
 ## Two separate jobs (pick yours)
 
 This SDK can do **two different things**. They do not depend on each other — use one, the
 other, or both.
 
-### Scenario 1 — Approve user login on a website
+### Scenario 1 — Approve user login on a website {: #scenario-1 }
 
-**When:** A user wants to log into someone else's site through your agent.
+!!! note "When to use"
+    A user wants to log into someone else's site through your agent.
 
-**Who does what:**
+```mermaid
+sequenceDiagram
+    participant Site as Site backend<br/>(lime-sites-sdk)
+    participant Agent as Your agent worker<br/>(this SDK)
+    participant LIME as LIME API
 
-```
-Site backend (lime-sites-sdk)     Your agent worker (THIS SDK)
-        │                                    │
-        │  1. create_login_request()         │
-        │───────────────────────────────────>│  2. login(request_id)
-        │                                    │
-        │  3. receives passport via SSE      │
-        │     (you don't handle this)        │
+    Site->>LIME: create_login_request()
+    Site->>Agent: request_id (your queue/RPC)
+    Agent->>LIME: login(request_id)
+    LIME-->>Site: passport JWT via SSE
+    Note over Agent: You do not receive the passport
 ```
 
 **What you call:**
 
 ```python
 async with LimeAgent() as agent:
-    result = await agent.login(request_id)   # one method — SDK does the rest
-    print(result.status)                     # "APPROVED"
+    result = await agent.login(request_id)
+    print(result.status)  # APPROVED
 ```
 
 **You need:** `LIME_AGENT_TOKEN` in environment.
 
-**Full walkthrough:** [Quick Start — Site login](quickstart.md#scenario-1-site-login)
+→ [Quick Start — Site login](quickstart.md#scenario-1)
 
----
+### Scenario 2 — Call tools on an external MCP server {: #scenario-2 }
 
-### Scenario 2 — Call tools on an external MCP server
+!!! note "When to use"
+    Your agent must call tools on another server (calculator, DB, API) that trusts
+    LIME-issued tokens.
 
-**When:** Your agent must use tools hosted on another server (calculator, database, API
-adapter, etc.) that trusts LIME-issued tokens.
+```mermaid
+sequenceDiagram
+    participant Agent as Your agent worker<br/>(this SDK)
+    participant LIME as LIME OAuth
+    participant MCP as External MCP server
+
+    Agent->>LIME: get token (automatic)
+    Agent->>MCP: list_tools / call_tool
+    Note over Agent: No login(), no request_id
+```
 
 **What you call:**
 
@@ -67,55 +75,34 @@ async with LimeAgent() as agent:
     result = await agent.call_tool("https://your-mcp-server.example/mcp", tools[0].name, {})
 ```
 
-**You need:** same `LIME_AGENT_TOKEN`. The SDK requests a short-lived access token from
-LIME automatically — you do **not** call `get_mcp_access_token()` unless you build custom
-HTTP yourself.
+**You need:** same `LIME_AGENT_TOKEN`. Token is fetched automatically — do **not** call
+`get_mcp_access_token()` unless you write custom HTTP.
 
-**Full walkthrough:** [Quick Start — MCP tools](quickstart.md#scenario-2-mcp-tools)
-
----
+→ [Quick Start — MCP tools](quickstart.md#scenario-2)
 
 ## Class structure: `LimeAgent`
 
-Everything lives in **one class**. Methods are grouped by scenario:
+| Group | Method | Returns | Scenario |
+|-------|--------|---------|----------|
+| **Setup** | `LimeAgent(agent_token=...)` | client | both |
+| **Setup** | `await agent.aclose()` | — | both |
+| **Site login** | `await agent.login(request_id)` | `ApprovalResult` | 1 |
+| **Profile** | `await agent.get_profile()` | `AgentProfile` | optional |
+| **MCP** | `await agent.list_tools(url)` | `list[Tool]` | 2 |
+| **MCP** | `await agent.call_tool(url, name, args)` | `CallToolResult` | 2 |
+| **MCP** | `await agent.get_mcp_access_token()` | `McpAccessToken` | 2 (rare) |
 
-```
-LimeAgent
-│
-├─── SETUP (always first)
-│    LimeAgent(agent_token=...)     create client; reads LIME_AGENT_TOKEN from env
-│    async with LimeAgent(): ...    same + auto cleanup on exit
-│    await agent.aclose()            close connections manually
-│
-├─── SCENARIO 1 — Site login
-│    await agent.login(request_id)   → ApprovalResult
-│         PoW + approve in one call. Site gets JWT separately (not your job).
-│
-├─── Optional — Agent profile
-│    await agent.get_profile()       → AgentProfile
-│
-└─── SCENARIO 2 — MCP tools
-     await agent.list_tools(url)     → list[Tool]
-     await agent.call_tool(url, name, args)  → CallToolResult
-     await agent.get_mcp_access_token()      → McpAccessToken  (rare; auto otherwise)
-     … list_resources, read_resource, list_prompts, get_prompt (same url pattern)
-```
-
-Method signatures and errors: [API Reference](api.md).
-
----
+Full signatures: [API Reference](api.md).
 
 ## What you need before coding
 
 | Item | Where to get it |
 |------|-----------------|
 | `LIME_AGENT_TOKEN` | LIME portal → your agent → copy token once |
-| `request_id` (scenario 1) | Site backend creates it; passes to your worker (queue, RPC, message) |
+| `request_id` (scenario 1) | Site backend creates it; passes to your worker |
 | MCP server URL (scenario 2) | URL of the external MCP HTTP endpoint |
 
-Optional env var `LIME_API_BASE` — default `https://lime.pics/api/v1`.
-
----
+Optional: `LIME_API_BASE` — default `https://lime.pics/api/v1`.
 
 ## Install
 
@@ -125,22 +112,18 @@ pip install lime-agents-sdk
 
 Details: [Installation](installation.md)
 
----
-
 ## Other LIME SDKs
 
 | SDK | Your role |
 |-----|-----------|
 | **lime-agents-sdk** (this) | Agent worker process |
 | [lime-sites-sdk](https://lime-sites-sdk.readthedocs.io/) | Website backend |
-| [lime-mcp-server-sdk](https://lime-mcp-server-sdk.readthedocs.io/) | MCP server operator (verify tokens) |
+| [lime-mcp-server-sdk](https://lime-mcp-server-sdk.readthedocs.io/) | MCP server operator |
 
 Platform HTTP reference: [lime.pics/docs](https://lime.pics/docs#guide-agentSdk)
 
----
-
 ## Next pages
 
-1. [Quick Start](quickstart.md) — copy-paste examples for both scenarios
+1. [Quick Start](quickstart.md) — copy-paste for both scenarios
 2. [API Reference](api.md) — every method, one section each
-3. [Examples](examples.md) — error handling, multiple MCP servers
+3. [Examples](examples.md) — errors, multiple MCP servers

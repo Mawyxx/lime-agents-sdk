@@ -1,6 +1,6 @@
 # Examples
 
-## Full site-login worker
+## Scenario 1 — Site login worker
 
 ```python
 import asyncio
@@ -21,9 +21,9 @@ async def approve_login(request_id: str) -> None:
 asyncio.run(approve_login("lr_abc123"))
 ```
 
-Pair with [`lime-sites-sdk`](https://lime-sites-sdk.readthedocs.io/) on the site side.
+Pair with [lime-sites-sdk](https://lime-sites-sdk.readthedocs.io/) on the site side.
 
-## Multiple MCP servers
+## Scenario 2 — Multiple MCP servers
 
 One `LimeAgent` pools sessions per server URL:
 
