@@ -4,6 +4,48 @@ New to this SDK? Read [Home](index.md) first — two scenarios and the method ta
 
 HTTP routes: [LIME platform docs](https://lime.pics/docs).
 
+## Signature cheat sheet
+
+Readable overview before auto-generated details below.
+
+<div class="sig-cheat" markdown="1">
+
+=== "Scenario 1 — Site login"
+
+    ```python
+    agent = LimeAgent(agent_token: str | None = None, ...)
+
+    await agent.login(request_id: str) -> ApprovalResult
+
+    await agent.get_profile() -> AgentProfile
+    ```
+
+=== "Scenario 2 — MCP tools"
+
+    ```python
+    await agent.list_tools(server_url: str) -> list[Tool]
+
+    await agent.call_tool(
+        server_url: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> CallToolResult
+
+    await agent.get_mcp_access_token(*, force_refresh: bool = False) -> McpAccessToken
+    ```
+
+=== "Setup / cleanup"
+
+    ```python
+    async with LimeAgent() as agent: ...   # calls aclose() on exit
+
+    await agent.aclose() -> None
+    ```
+
+</div>
+
+Minimum setup: `LimeAgent()` reads `LIME_AGENT_TOKEN` from the environment.
+
 ## Methods by scenario
 
 === "Scenario 1 — Site login"

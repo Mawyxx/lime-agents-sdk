@@ -82,15 +82,15 @@ async with LimeAgent() as agent:
 
 ## Class structure: `LimeAgent`
 
-| Group | Method | Returns | Scenario |
-|-------|--------|---------|----------|
-| **Setup** | `LimeAgent(agent_token=...)` | client | both |
-| **Setup** | `await agent.aclose()` | — | both |
-| **Site login** | `await agent.login(request_id)` | `ApprovalResult` | 1 |
-| **Profile** | `await agent.get_profile()` | `AgentProfile` | optional |
-| **MCP** | `await agent.list_tools(url)` | `list[Tool]` | 2 |
-| **MCP** | `await agent.call_tool(url, name, args)` | `CallToolResult` | 2 |
-| **MCP** | `await agent.get_mcp_access_token()` | `McpAccessToken` | 2 (rare) |
+| Group | Method | Signature (short) | Returns |
+|-------|--------|-------------------|---------|
+| **Setup** | `LimeAgent(...)` | `LimeAgent(agent_token=None, ...)` | client |
+| **Setup** | `aclose()` | `await agent.aclose()` | — |
+| **Site login** | `login()` | `await agent.login(request_id: str)` | `ApprovalResult` |
+| **Profile** | `get_profile()` | `await agent.get_profile()` | `AgentProfile` |
+| **MCP** | `list_tools()` | `await agent.list_tools(server_url: str)` | `list[Tool]` |
+| **MCP** | `call_tool()` | `await agent.call_tool(url, name, args)` | `CallToolResult` |
+| **MCP** | `get_mcp_access_token()` | `await agent.get_mcp_access_token()` | `McpAccessToken` |
 
 Full signatures: [API Reference](api.md).
 

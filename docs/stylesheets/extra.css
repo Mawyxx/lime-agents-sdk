@@ -26,11 +26,52 @@
 }
 
 .md-typeset pre > code {
-  font-size: 0.8rem;
-  line-height: 1.5;
+  font-size: 0.82rem;
+  line-height: 1.55;
 }
 
 .md-typeset .mermaid {
   margin: 1.5em 0;
   text-align: center;
+}
+
+/* mkdocstrings — readable signatures and parameter tables */
+.md-typeset .doc.doc-object .doc-signature {
+  display: block;
+  overflow-x: auto;
+  padding: 0.65em 0.85em;
+  margin: 0.5em 0 1em;
+  border-radius: 0.35em;
+  background-color: var(--md-code-bg-color, rgba(0, 0, 0, 0.05));
+  font-size: 0.82rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.md-typeset .doc.doc-object .doc-contents table {
+  margin: 0.75em 0 1.25em;
+}
+
+.md-typeset .doc.doc-object .doc-contents td code {
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.md-typeset .doc.doc-object .doc-contents h4,
+.md-typeset .doc.doc-object .doc-contents h5 {
+  margin-top: 1em;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.md-typeset .sig-cheat pre {
+  margin: 0.5em 0 1.25em;
+}
+
+.md-typeset .sig-cheat pre code {
+  font-size: 0.82rem;
+  line-height: 1.65;
 }

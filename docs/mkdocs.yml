@@ -26,18 +26,23 @@ plugins:
           paths: [../src]
           options:
             docstring_style: google
+            docstring_section_style: table
             show_source: false
             show_root_heading: true
-            show_symbol_type_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: false
             show_signature_annotations: true
+            show_signature_defaults: true
             separate_signature: true
+            signature_crossrefs: true
             merge_init_into_class: false
             members_order: source
             group_by_category: false
             show_bases: false
+            show_docstring_attributes: true
             heading_level: 3
-            line_length: 80
-            filters: ["!^_", "!^__"]
+            line_length: 120
+            filters: ["!^_", "!^__", "!^from_api"]
 nav:
   - Home: index.md
   - Installation: installation.md
