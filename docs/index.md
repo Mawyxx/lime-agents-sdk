@@ -47,6 +47,17 @@ asyncio.run(main())
 ## Next steps
 
 - [Installation](installation.md)
-- [Quick Start](quickstart.md)
-- [API Reference](api.md)
+- [Quick Start](quickstart.md) — step-by-step call order
+- [API Reference](api.md) — **method index + one section per method**
 - [Examples](examples.md)
+
+## API at a glance
+
+| You want to… | Call |
+|--------------|------|
+| Approve site login | `await agent.login(request_id)` |
+| Read agent profile | `await agent.get_profile()` |
+| Call MCP tools | `await agent.list_tools(url)` → `await agent.call_tool(url, name, args)` |
+| Get raw MCP JWT (rare) | `await agent.get_mcp_access_token()` |
+
+Full signatures and errors: [API Reference](api.md).

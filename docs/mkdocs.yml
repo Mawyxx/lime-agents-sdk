@@ -9,6 +9,10 @@ theme:
   palette:
     - scheme: slate
       primary: amber
+  features:
+    - content.code.copy
+    - navigation.tracking
+    - toc.follow
 plugins:
   - search
   - mkdocstrings:
@@ -18,8 +22,17 @@ plugins:
           options:
             docstring_style: google
             show_source: false
-            members_order: source
+            show_root_heading: true
+            show_symbol_type_heading: true
+            show_signature_annotations: true
             separate_signature: true
+            merge_init_into_class: false
+            members_order: source
+            group_by_category: false
+            show_bases: false
+            heading_level: 3
+            line_length: 80
+            filters: ["!^_", "!^__"]
 nav:
   - Home: index.md
   - Installation: installation.md
@@ -30,5 +43,8 @@ markdown_extensions:
   - pymdownx.highlight
   - pymdownx.superfences
   - admonition
+  - pymdownx.details
+  - tables
   - toc:
       permalink: true
+      toc_depth: 3

@@ -108,6 +108,11 @@ class LimeAgent:
         await self.aclose()
 
     async def aclose(self) -> None:
+        """Close MCP sessions and the underlying HTTP client.
+
+        Called automatically when using ``async with LimeAgent()``.
+        Safe to call multiple times.
+        """
         if self._mcp_pool is not None:
             await self._mcp_pool.aclose()
             self._mcp_pool = None
@@ -186,7 +191,17 @@ class LimeAgent:
 
     @asynccontextmanager
     async def mcp_session(self, server_url: str) -> AsyncIterator[ClientSession]:
-        """Hold an MCP session lock for advanced low-level calls on one server URL."""
+        """Low-level MCP session for custom protocol calls.
+
+        Args:
+            server_url: Full streamable HTTP MCP endpoint.
+
+        Yields:
+            Initialized ``ClientSession`` with OAuth already applied.
+
+        Note:
+            Prefer ``list_tools`` / ``call_tool`` for normal usage.
+        """
         async with self._get_mcp_pool().session(server_url) as session:
             yield session
 
@@ -231,7 +246,14 @@ class LimeAgent:
         )
 
     async def list_resources(self, server_url: str) -> list[Resource]:
-        """List resources exposed by an external MCP server."""
+        """List static resources on an external MCP server.
+
+        Args:
+            server_url: Full streamable HTTP MCP endpoint.
+
+        Returns:
+            List of ``Resource`` models.
+        """
         result = await self._get_mcp_pool().run(
             server_url,
             lambda session: session.list_resources(),
@@ -249,7 +271,14 @@ class LimeAgent:
         return list(result.resourceTemplates)
 
     async def list_prompts(self, server_url: str) -> list[Prompt]:
-        """List prompts on an external MCP server."""
+        """List prompt templates on an external MCP server.
+
+        Args:
+            server_url: Full streamable HTTP MCP endpoint.
+
+        Returns:
+            List of ``Prompt`` models.
+        """
         result = await self._get_mcp_pool().run(
             server_url,
             lambda session: session.list_prompts(),
@@ -258,7 +287,15 @@ class LimeAgent:
         return list(result.prompts)
 
     async def read_resource(self, server_url: str, uri: str) -> ReadResourceResult:
-        """Read a resource URI from an external MCP server."""
+        """Read one resource by URI from an external MCP server.
+
+        Args:
+            server_url: Full streamable HTTP MCP endpoint.
+            uri: Resource URI from ``list_resources``.
+
+        Returns:
+            ``ReadResourceResult`` with resource contents.
+        """
         return await self._get_mcp_pool().run(
             server_url,
             lambda session: session.read_resource(cast(Any, uri)),
@@ -271,7 +308,16 @@ class LimeAgent:
         name: str,
         arguments: dict[str, str] | None = None,
     ) -> GetPromptResult:
-        """Fetch a prompt template from an external MCP server."""
+        """Fetch a rendered prompt from an external MCP server.
+
+        Args:
+            server_url: Full streamable HTTP MCP endpoint.
+            name: Prompt name from ``list_prompts``.
+            arguments: Template arguments accepted by the prompt.
+
+        Returns:
+            ``GetPromptResult`` with message list.
+        """
         return await self._get_mcp_pool().run(
             server_url,
             lambda session: session.get_prompt(name, arguments or {}),

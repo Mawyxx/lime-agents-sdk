@@ -11,7 +11,15 @@ def _parse_datetime(value: str) -> datetime:
 
 @dataclass(frozen=True, slots=True)
 class ApprovalResult:
-    """Outcome of ``LimeAgent.login()`` approve step."""
+    """Outcome of ``LimeAgent.login()`` after approve succeeds.
+
+    Attributes:
+        request_id: Login request id (same as passed to ``login()``).
+        site_id: UUID of the site that created the request.
+        status: Wire status string (typically ``APPROVED``).
+        expires_at: Request expiry timestamp from API.
+        approved_agent_id: Agent UUID when status is approved; else ``None``.
+    """
 
     request_id: str
     site_id: str
@@ -35,7 +43,14 @@ class ApprovalResult:
 
 @dataclass(frozen=True, slots=True)
 class McpAccessToken:
-    """Short-lived MCP OAuth JWT and metadata from ``get_mcp_access_token()``."""
+    """Short-lived MCP OAuth JWT from ``get_mcp_access_token()``.
+
+    Attributes:
+        access_token: Raw JWT string (``aud=mcp``). Use on external MCP RS only.
+        token_type: Always ``Bearer``.
+        expires_in: Lifetime in seconds from issue time.
+        issued_at: Unix timestamp when token was fetched.
+    """
 
     access_token: str
     token_type: Literal["Bearer"]
@@ -45,7 +60,17 @@ class McpAccessToken:
 
 @dataclass(frozen=True, slots=True)
 class AgentProfile:
-    """Authenticated agent profile from Core API."""
+    """Authenticated agent profile from ``get_profile()``.
+
+    Attributes:
+        agent_id: Agent UUID.
+        owner_id: LIME user UUID (wire field ``user_id``).
+        display_name: Public display name, if set.
+        avatar_url: Avatar URL, if set.
+        description: Agent bio, if set.
+        owner_kyc_level: Owner KYC level (wire ``user_kyc_level``), if known.
+        agent_reputation: Reputation score, if exposed by API.
+    """
 
     agent_id: str
     owner_id: str

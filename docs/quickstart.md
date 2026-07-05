@@ -1,10 +1,16 @@
 # Quick Start
 
-## Scenario A — Site login (headless approve)
+## Call order (site login)
 
-The site backend creates a login request and hands `request_id` to your agent worker.
-Your worker runs PoW + approve; the **site** receives the passport JWT over SSE
-(separately via [`lime-sites-sdk`](https://lime-sites-sdk.readthedocs.io/)).
+```
+LimeAgent()  →  login(request_id)  →  ApprovalResult
+     │                │
+     │                └── PoW + approve (automatic)
+     └── needs LIME_AGENT_TOKEN
+```
+
+The **site** receives the passport JWT over SSE separately
+([`lime-sites-sdk`](https://lime-sites-sdk.readthedocs.io/)).
 
 ```python
 import asyncio
@@ -20,16 +26,23 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-**What happens internally:**
+| Step | What `login()` does internally |
+|------|--------------------------------|
+| 1 | `GET /auth/requests/{id}` — fetch PoW challenge (no auth) |
+| 2 | Solve SHA-256 PoW in a thread pool |
+| 3 | `POST .../approve` with `X-Agent-Token` and `pow_nonce` |
 
-1. `GET /auth/requests/{id}` — fetch PoW challenge (no auth)
-2. Solve SHA-256 PoW in a thread pool
-3. `POST .../approve` with `X-Agent-Token` and `pow_nonce`
+Returns [`ApprovalResult`](api.md#approvalresult) — see [API Reference](api.md#login).
 
-## Scenario B — MCP tools (automatic OAuth)
+---
 
-MCP JWT is **fetched and cached automatically** on the first MCP call. You do **not**
-need `get_mcp_access_token()` for normal usage.
+## Call order (MCP tools)
+
+```
+LimeAgent()  →  list_tools(url)  →  call_tool(url, name, args)
+                     │
+                     └── OAuth JWT fetched automatically (no get_mcp_access_token)
+```
 
 ```python
 import asyncio
@@ -50,6 +63,10 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+Method details: [`list_tools`](api.md#list_tools), [`call_tool`](api.md#call_tool).
+
+---
+
 ## Environment variables
 
 | Variable | Required | Description |
@@ -61,8 +78,8 @@ asyncio.run(main())
 
 ## Optional: raw MCP JWT
 
-Use `get_mcp_access_token()` only when you need the JWT string itself (custom HTTP
-client, debugging, or passing to another process):
+Use [`get_mcp_access_token()`](api.md#get_mcp_access_token) only when you need the JWT string
+(custom HTTP client, debugging):
 
 ```python
 token = await agent.get_mcp_access_token()
