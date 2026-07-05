@@ -1,16 +1,21 @@
 # Quick Start
 
-## Call order (site login)
+Two independent scenarios. **Most integrators need only one.**
 
-```
-LimeAgent()  →  login(request_id)  →  ApprovalResult
-     │                │
-     │                └── PoW + approve (automatic)
-     └── needs LIME_AGENT_TOKEN
-```
+---
 
-The **site** receives the passport JWT over SSE separately
-([`lime-sites-sdk`](https://lime-sites-sdk.readthedocs.io/)).
+## Scenario 1 — Site login
+
+### What happens (plain language)
+
+1. A **site backend** starts login and gets a `request_id`.
+2. The site sends `request_id` to **your agent worker** (you implement this handoff).
+3. **You** call `login(request_id)` — this SDK solves the crypto challenge and tells LIME
+   "approve".
+4. The **site** receives a passport JWT over a live connection (SSE). You do not receive
+   or store that JWT in the agent worker.
+
+### Code
 
 ```python
 import asyncio
@@ -19,30 +24,50 @@ import os
 from lime_agents import LimeAgent
 
 async def main() -> None:
+    request_id = "paste_id_from_your_site_queue"
+
     async with LimeAgent(agent_token=os.environ["LIME_AGENT_TOKEN"]) as agent:
-        result = await agent.login("lr_from_your_site_queue")
-        print(result.status)  # APPROVED
+        result = await agent.login(request_id)
+        print(result.status)              # APPROVED
+        print(result.approved_agent_id)   # your agent UUID
 
 asyncio.run(main())
 ```
 
-| Step | What `login()` does internally |
-|------|--------------------------------|
-| 1 | `GET /auth/requests/{id}` — fetch PoW challenge (no auth) |
-| 2 | Solve SHA-256 PoW in a thread pool |
-| 3 | `POST .../approve` with `X-Agent-Token` and `pow_nonce` |
+### Methods used in this scenario
 
-Returns [`ApprovalResult`](api.md#approvalresult) — see [API Reference](api.md#login).
+| Order | Method | Input | Output |
+|-------|--------|-------|--------|
+| 1 | `LimeAgent()` | `LIME_AGENT_TOKEN` | client ready |
+| 2 | `login(request_id)` | id from site | `ApprovalResult` |
+
+That's it for site login. No MCP methods required.
+
+### What `login()` does inside (you don't code this)
+
+| Step | Action |
+|------|--------|
+| 1 | Fetch PoW challenge from LIME |
+| 2 | Solve challenge locally |
+| 3 | POST approve with your agent token |
+
+Details: [`login()` in API Reference](api.md#login)
 
 ---
 
-## Call order (MCP tools)
+## Scenario 2 — MCP tools
 
-```
-LimeAgent()  →  list_tools(url)  →  call_tool(url, name, args)
-                     │
-                     └── OAuth JWT fetched automatically (no get_mcp_access_token)
-```
+### What happens (plain language)
+
+1. Your agent knows the URL of an **external MCP server** (not LIME itself).
+2. You call `list_tools(url)` to see what the server offers.
+3. You call `call_tool(url, name, arguments)` to run a tool.
+4. The SDK asks LIME for a temporary access token and sends it to the MCP server — **you
+   do not manage tokens** in normal usage.
+
+This flow is **unrelated** to site login. No `request_id`, no `login()`.
+
+### Code
 
 ```python
 import asyncio
@@ -55,35 +80,56 @@ MCP_URL = "https://your-mcp-server.example/mcp"
 async def main() -> None:
     async with LimeAgent(agent_token=os.environ["LIME_AGENT_TOKEN"]) as agent:
         tools = await agent.list_tools(MCP_URL)
-        print(len(tools))  # list[Tool], not tools.tools
+        print(f"Found {len(tools)} tools")          # list[Tool] — use len(tools)
+
         if tools:
-            result = await agent.call_tool(MCP_URL, tools[0].name, {})
+            result = await agent.call_tool(MCP_URL, tools[0].name, {"key": "value"})
             print(result.content)
 
 asyncio.run(main())
 ```
 
-Method details: [`list_tools`](api.md#list_tools), [`call_tool`](api.md#call_tool).
+### Methods used in this scenario
+
+| Order | Method | Input | Output |
+|-------|--------|-------|--------|
+| 1 | `LimeAgent()` | `LIME_AGENT_TOKEN` | client ready |
+| 2 | `list_tools(server_url)` | MCP HTTP URL | `list[Tool]` |
+| 3 | `call_tool(server_url, name, args)` | tool name + JSON args | `CallToolResult` |
+
+### Common mistake
+
+```python
+# WRONG — do not fetch token before every call
+token = await agent.get_mcp_access_token()
+tools = await agent.list_tools(url)   # token is already handled inside
+```
+
+Use `get_mcp_access_token()` only if you write your own HTTP client to the MCP server.
+
+Details: [`list_tools`](api.md#list_tools), [`call_tool`](api.md#call_tool)
 
 ---
 
 ## Environment variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `LIME_AGENT_TOKEN` | Yes* | Agent secret from LIME portal |
-| `LIME_API_BASE` | No | Default `https://lime.pics/api/v1` |
+| Variable | Required | Default | Used in |
+|----------|----------|---------|---------|
+| `LIME_AGENT_TOKEN` | Yes* | — | Both scenarios |
+| `LIME_API_BASE` | No | `https://lime.pics/api/v1` | Both scenarios |
 
-\*Unless passed as `agent_token=` to `LimeAgent()`.
+\*Or pass `agent_token=` to `LimeAgent()`.
 
-## Optional: raw MCP JWT
+---
 
-Use [`get_mcp_access_token()`](api.md#get_mcp_access_token) only when you need the JWT string
-(custom HTTP client, debugging):
+## Both scenarios in one process
+
+Same `LimeAgent` instance can do both — they share the agent token only:
 
 ```python
-token = await agent.get_mcp_access_token()
-print(token.expires_in)
+async with LimeAgent() as agent:
+    await agent.login(site_request_id)           # scenario 1
+    tools = await agent.list_tools(mcp_url)      # scenario 2
 ```
 
-See [LIME platform docs](https://lime.pics/docs) for HTTP reference.
+HTTP reference: [lime.pics/docs](https://lime.pics/docs)

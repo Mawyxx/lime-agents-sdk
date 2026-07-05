@@ -1,34 +1,61 @@
 # API Reference
 
-Human-readable index below. Each method has its **own section** with signature, parameters,
-return value, and errors.
+Start with [Home](index.md) if you are new — it explains **two scenarios** (site login vs
+MCP tools) and shows the full `LimeAgent` tree.
 
-HTTP route tables live in [LIME platform docs](https://lime.pics/docs) — not duplicated here.
+Below: every public method in **its own section**. HTTP routes are in
+[LIME platform docs](https://lime.pics/docs).
 
 ---
 
-## `LimeAgent` — method index
+## Which methods belong to which scenario?
+
+### Scenario 1 — Site login
+
+| Method | Returns |
+|--------|---------|
+| [`login()`](#login) | `ApprovalResult` |
+
+Optional: [`get_profile()`](#get_profile) → `AgentProfile`
+
+### Scenario 2 — MCP tools
+
+| Method | Returns |
+|--------|---------|
+| [`list_tools()`](#list_tools) | `list[Tool]` |
+| [`call_tool()`](#call_tool) | `CallToolResult` |
+| [`list_resources()`](#list_resources) | `list[Resource]` |
+| [`read_resource()`](#read_resource) | `ReadResourceResult` |
+| [`list_prompts()`](#list_prompts) | `list[Prompt]` |
+| [`get_prompt()`](#get_prompt) | `GetPromptResult` |
+
+Rare: [`get_mcp_access_token()`](#get_mcp_access_token) — only for custom HTTP clients.
+
+### Setup / cleanup (both scenarios)
+
+| Method | Returns |
+|--------|---------|
+| [`LimeAgent()`](#limeagent) | client |
+| [`aclose()`](#aclose) | `None` |
+
+---
+
+## Full method index
 
 | Method | What it does | Returns |
 |--------|--------------|---------|
 | [`LimeAgent()`](#limeagent) | Create client; reads `LIME_AGENT_TOKEN` | `LimeAgent` |
-| [`login()`](#login) | PoW + approve one site-login request | `ApprovalResult` |
+| [`login()`](#login) | Approve one site-login request | `ApprovalResult` |
 | [`get_profile()`](#get_profile) | Fetch agent Core profile | `AgentProfile` |
-| [`get_mcp_access_token()`](#get_mcp_access_token) | Raw MCP JWT (optional; MCP methods auto-issue) | `McpAccessToken` |
+| [`get_mcp_access_token()`](#get_mcp_access_token) | Raw MCP JWT (optional) | `McpAccessToken` |
 | [`list_tools()`](#list_tools) | List tools on external MCP server | `list[Tool]` |
 | [`call_tool()`](#call_tool) | Run one MCP tool | `CallToolResult` |
 | [`list_resources()`](#list_resources) | List MCP resources | `list[Resource]` |
 | [`read_resource()`](#read_resource) | Read one MCP resource URI | `ReadResourceResult` |
 | [`list_prompts()`](#list_prompts) | List MCP prompts | `list[Prompt]` |
 | [`get_prompt()`](#get_prompt) | Fetch one MCP prompt | `GetPromptResult` |
-| [`mcp_session()`](#mcp_session) | Low-level MCP session context manager | `ClientSession` |
-| [`aclose()`](#aclose) | Close HTTP + MCP connections | `None` |
-
-!!! tip "Typical flows"
-    **Site login worker:** `LimeAgent()` → `login(request_id)` → done (site gets JWT via SSE).
-
-    **MCP worker:** `LimeAgent()` → `list_tools(url)` → `call_tool(url, name, args)`.
-    No manual OAuth step.
+| [`mcp_session()`](#mcp_session) | Low-level MCP session | `ClientSession` |
+| [`aclose()`](#aclose) | Close connections | `None` |
 
 ---
 
