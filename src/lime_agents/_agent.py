@@ -35,9 +35,9 @@ class LimeAgent:
     """Async client for LIME agent workers.
 
     Wraps site-login approve (PoW + ``X-Agent-Token``) and MCP OAuth client calls to
-    external resource servers.     MCP JWTs are issued and cached automatically on ``list_tools`` / ``call_tool``.
-    Tokens use **lazy refresh** (no background task): the next MCP call within
-    ``mcp_token_refresh_skew`` seconds of expiry triggers ``POST /oauth/token``.
+    external resource servers. MCP JWTs are issued and cached on ``list_tools`` /
+    ``call_tool``. Tokens use **lazy refresh** (no background task): the next MCP call
+    within ``mcp_token_refresh_skew`` seconds of expiry triggers ``POST /oauth/token``.
     Use ``get_mcp_access_token()`` only when you need the raw JWT string.
 
     See `LIME platform docs <https://lime.pics/docs#guide-agentSdk>`_ for HTTP details.
