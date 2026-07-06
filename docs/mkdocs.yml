@@ -47,6 +47,7 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - Quick Start: quickstart.md
+  - MCP OAuth & pool: mcp-oauth.md
   - API Reference: api.md
   - Examples: examples.md
 markdown_extensions:

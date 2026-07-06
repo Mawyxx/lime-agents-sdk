@@ -131,22 +131,14 @@ class McpSessionPool:
             self._entries.clear()
         await asyncio.sleep(0.15)
 
-        async def close_entry(entry: _ServerEntry) -> None:
+        for entry in entries:
             try:
                 async with entry.lock:
                     await entry.transport.close()
             except BaseException as exc:
                 if McpSessionPool._is_shutdown_noise(exc):
-                    return
-                raise
-
-        results = await asyncio.gather(
-            *[close_entry(entry) for entry in entries],
-            return_exceptions=True,
-        )
-        for result in results:
-            if isinstance(result, BaseException) and not self._is_shutdown_noise(result):
-                logger.warning("MCP pool close error: %s", result)
+                    continue
+                logger.warning("MCP pool close error: %s", exc)
 
     async def _execute_operation(
         self,
@@ -245,7 +237,12 @@ class McpSessionPool:
         if group is not None:
             return all(McpSessionPool._is_shutdown_noise(sub) for sub in group)
         message = str(exc).lower()
-        return "cancel scope" in message or "session termination failed" in message
+        return (
+            "cancel scope" in message
+            or "cancelled via cancel scope" in message
+            or "session termination failed" in message
+            or "generator exit" in message
+        )
 
     @staticmethod
     def _is_auth_failure(exc: BaseException) -> bool:

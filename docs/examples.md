@@ -23,16 +23,27 @@ asyncio.run(approve_login("lr_abc123"))
 
 Pair with [lime-sites-sdk](https://lime-sites-sdk.readthedocs.io/) on the site side.
 
-## Scenario 2 — Multiple MCP servers
+## Scenario 2 — Multiple MCP servers {: #scenario-2-multiple-mcp-servers }
 
-One `LimeAgent` pools sessions per server URL:
+One `LimeAgent` pools sessions per server URL. Calls to **different** URLs can run in
+parallel; the same OAuth JWT is shared (lazy refresh on the next MCP call).
 
 ```python
-async with LimeAgent() as agent:
-    tools_a = await agent.list_tools("https://mcp-a.example/mcp")
-    tools_b = await agent.list_tools("https://mcp-b.example/mcp")
-    print(len(tools_a), len(tools_b))
+import asyncio
+from lime_agents import LimeAgent
+
+async def main() -> None:
+    async with LimeAgent() as agent:
+        tools_a, tools_b = await asyncio.gather(
+            agent.list_tools("https://mcp-a.example/mcp"),
+            agent.list_tools("https://mcp-b.example/mcp"),
+        )
+        print(len(tools_a), len(tools_b))
+
+asyncio.run(main())
 ```
+
+See [MCP OAuth & pool](mcp-oauth.md) for token lifecycle and retry behavior.
 
 ## Error handling
 
@@ -63,7 +74,7 @@ async with LimeAgent() as agent:
 
 | Mistake | Correct approach |
 |---------|------------------|
-| `get_mcp_access_token()` before every MCP call | JWT auto-issued on `list_tools` / `call_tool` |
+| `get_mcp_access_token()` before every MCP call | JWT auto-issued and lazy-refreshed on `list_tools` / `call_tool` |
 | `len(tools.tools)` | `list_tools()` returns `list[Tool]` — use `len(tools)` |
 | Bearer MCP JWT on LIME APIs | Use `X-Agent-Token` for LIME; Bearer only on external MCP RS |
 | Expect `owner_id` in raw API JSON | Wire field is `user_id`; SDK maps to `AgentProfile.owner_id` |

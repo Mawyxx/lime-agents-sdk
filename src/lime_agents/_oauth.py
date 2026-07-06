@@ -21,7 +21,12 @@ _RFC6749_KEYS = frozenset({"access_token", "token_type", "expires_in"})
 
 
 class _McpTokenIssuer:
-    """Issues and caches MCP access tokens via LIME OAuth (ADR 0081 v3)."""
+    """Issues and caches MCP access tokens via LIME OAuth (ADR 0081 v3).
+
+    Uses **lazy refresh**: no background timer. On each ``get_access_token()`` call the
+    cache is returned while valid; when ``expires_in - refresh_skew`` is reached the next
+    caller fetches a new JWT under ``_refresh_lock`` (single-flight).
+    """
 
     def __init__(self, client: LimeClient, *, refresh_skew: float = 30.0) -> None:
         self._client = client

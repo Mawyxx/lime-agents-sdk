@@ -359,6 +359,50 @@ async def test_pool_get_server_capabilities() -> None:
 
 
 @pytest.mark.asyncio
+async def test_pool_parallel_different_urls_concurrent() -> None:
+    """Many MCP servers in parallel: one OAuth flight, no cross-server blocking."""
+    session = AsyncMock()
+    active = {"n": 0}
+    max_active = {"n": 0}
+    urls_seen: set[str] = set()
+
+    async def slow_list_tools() -> MagicMock:
+        active["n"] += 1
+        max_active["n"] = max(max_active["n"], active["n"])
+        await asyncio.sleep(0.05)
+        active["n"] -= 1
+        return MagicMock(tools=[])
+
+    session.list_tools = slow_list_tools
+    fake_http, fake_session = _mock_transport_stack(session)
+
+    @asynccontextmanager
+    async def url_tracking_http(
+        url: str,
+        *,
+        http_client: Any = None,
+        terminate_on_close: bool = True,
+    ):
+        urls_seen.add(url)
+        read_stream = MagicMock()
+        write_stream = MagicMock()
+        yield read_stream, write_stream, lambda: "sid"
+
+    issuer = _make_issuer()
+
+    with (
+        patch("lime_agents._mcp._transport.streamable_http_client", url_tracking_http),
+        patch("lime_agents._mcp._transport.ClientSession", fake_session),
+    ):
+        pool = McpSessionPool(issuer)
+        servers = [f"https://mcp{i}.example.com" for i in range(5)]
+        await asyncio.gather(*(pool.run(url, lambda s: s.list_tools()) for url in servers))
+        assert max_active["n"] == 5
+        assert urls_seen == set(servers)
+        await pool.aclose()
+
+
+@pytest.mark.asyncio
 async def test_pool_parallel_when_disabled() -> None:
     session = AsyncMock()
     active = {"n": 0}

@@ -53,9 +53,10 @@ asyncio.run(main())
 
 1. Your agent knows the URL of an **external MCP server**.
 2. You call `list_tools(url)` then `call_tool(url, name, args)`.
-3. SDK gets a temporary token from LIME automatically.
+3. SDK gets a temporary token from LIME automatically (**lazy refresh** on each MCP
+   call when the cache is within `mcp_token_refresh_skew` seconds of expiry).
 
-This flow is **unrelated** to site login.
+This flow is **unrelated** to site login. Details: [MCP OAuth & pool](mcp-oauth.md).
 
 ### Code
 

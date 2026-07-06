@@ -75,10 +75,11 @@ async with LimeAgent() as agent:
     result = await agent.call_tool("https://your-mcp-server.example/mcp", tools[0].name, {})
 ```
 
-**You need:** same `LIME_AGENT_TOKEN`. Token is fetched automatically — do **not** call
+**You need:** same `LIME_AGENT_TOKEN`. Token is fetched automatically on each MCP call
+(**lazy refresh** ~30s before expiry — no background worker). Do **not** call
 `get_mcp_access_token()` unless you write custom HTTP.
 
-→ [Quick Start — MCP tools](quickstart.md#scenario-2)
+→ [Quick Start — MCP tools](quickstart.md#scenario-2) · [MCP OAuth & pool](mcp-oauth.md)
 
 ## Class structure: `LimeAgent`
 
@@ -125,5 +126,6 @@ Platform HTTP reference: [lime.pics/docs](https://lime.pics/docs#guide-agentSdk)
 ## Next pages
 
 1. [Quick Start](quickstart.md) — copy-paste for both scenarios
-2. [API Reference](api.md) — every method, one section each
-3. [Examples](examples.md) — errors, multiple MCP servers
+2. [MCP OAuth & pool](mcp-oauth.md) — lazy refresh, multi-server, retries
+3. [API Reference](api.md) — every method, one section each
+4. [Examples](examples.md) — errors, multiple MCP servers

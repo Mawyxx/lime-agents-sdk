@@ -35,9 +35,10 @@ class LimeAgent:
     """Async client for LIME agent workers.
 
     Wraps site-login approve (PoW + ``X-Agent-Token``) and MCP OAuth client calls to
-    external resource servers. MCP JWTs are issued and cached automatically on
-    ``list_tools`` / ``call_tool`` — use ``get_mcp_access_token()`` only when you need
-    the raw JWT string.
+    external resource servers.     MCP JWTs are issued and cached automatically on ``list_tools`` / ``call_tool``.
+    Tokens use **lazy refresh** (no background task): the next MCP call within
+    ``mcp_token_refresh_skew`` seconds of expiry triggers ``POST /oauth/token``.
+    Use ``get_mcp_access_token()`` only when you need the raw JWT string.
 
     See `LIME platform docs <https://lime.pics/docs#guide-agentSdk>`_ for HTTP details.
     """
@@ -61,9 +62,10 @@ class LimeAgent:
             agent_token: Opaque agent secret (default from ``LIME_AGENT_TOKEN`` env).
             base_url: API root including ``/api/v1`` (default ``LIME_API_BASE``).
             timeout: HTTP timeout seconds for LIME platform calls.
-            max_retries: Retries on transient 408/429/5xx responses.
+            max_retries: Retries on transient 408/429/5xx for **LIME platform** HTTP only.
             pow_timeout: Max seconds to solve PoW before ``PowTimeoutError``.
-            mcp_token_refresh_skew: Refresh MCP JWT this many seconds before expiry.
+            mcp_token_refresh_skew: Treat MCP JWT as expired this many seconds before
+                ``expires_in``; lazy refresh runs on the next MCP call (not in background).
             mcp_read_timeout: MCP streamable HTTP read timeout seconds.
             serialize_mcp_per_url: Serialize MCP calls per server URL when True.
             http_client: Injectable ``httpx.AsyncClient`` for tests.
@@ -175,8 +177,9 @@ class LimeAgent:
             ``McpAccessToken`` with ``access_token``, ``expires_in``, and ``issued_at``.
 
         Note:
-            Prefer ``list_tools`` / ``call_tool`` for normal MCP usage. This method is
-            for integrators who need the raw JWT (custom HTTP clients, debugging).
+            Prefer ``list_tools`` / ``call_tool`` for normal MCP usage. Lazy refresh
+            happens automatically on those methods when the cache is near expiry.
+            This method is for integrators who need the raw JWT (custom HTTP, debugging).
         """
         return await self._oauth.get_access_token(force_refresh=force_refresh)
 
@@ -208,7 +211,8 @@ class LimeAgent:
     async def list_tools(self, server_url: str) -> list[Tool]:
         """List tools on an external MCP resource server.
 
-        OAuth JWT is fetched and attached automatically on first call.
+        OAuth JWT is fetched lazily on this call (and refreshed when within
+        ``mcp_token_refresh_skew`` of expiry).
 
         Args:
             server_url: Full streamable HTTP MCP endpoint (e.g. ``https://host/mcp``).

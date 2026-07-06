@@ -123,7 +123,7 @@ Minimum setup: `LimeAgent()` reads `LIME_AGENT_TOKEN` from the environment.
 ## MCP — tools and resources
 
 All MCP methods take `server_url` (full HTTP MCP endpoint). OAuth JWT is attached
-automatically.
+automatically with **lazy refresh** (see [MCP OAuth & pool](mcp-oauth.md)).
 
 ::: lime_agents.LimeAgent.list_tools
     options:

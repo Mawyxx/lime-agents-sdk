@@ -36,7 +36,7 @@ LIME uses **two different JWT artifacts**. This SDK covers the **agent worker** 
 | **Site login passport** | **Site backend** (via SSE) | `aud=lime-site-login` — cryptographic passport for the logged-in session | Agent calls `login()` only; site verifies JWT with [`lime-sites-sdk`](https://github.com/Mawyxx/lime-site-sdk) + Core JWKS |
 | **MCP access token** | **Agent worker** (cached in SDK; not sent to site) | `aud=mcp` — Bearer token for **external** MCP resource servers | MCP facade methods auto-issue + cache; optional `get_mcp_access_token()` if you need the raw JWT |
 
-The MCP JWT is signed with LIME Core keys (JWKS at `GET /api/v1/core/.well-known/jwks.json`). Default TTL is **300 seconds (5 minutes)**. The SDK caches it in your worker and refreshes ~30s before expiry; you send it to **remote** MCP servers as `Authorization: Bearer` — not to the site backend. **MCP JWTs are rejected on LIME HTTP APIs** — only opaque `X-Agent-Token` works there.
+The MCP JWT is signed with LIME Core keys (JWKS at `GET /api/v1/core/.well-known/jwks.json`). Default TTL is **300 seconds (5 minutes)**. The SDK caches it in your worker and performs **lazy refresh** on the next MCP call when the token is within **~30 seconds of expiry** (`mcp_token_refresh_skew`, default `30`) — there is **no background refresh task**. You send the JWT to **remote** MCP servers as `Authorization: Bearer` — not to the site backend. **MCP JWTs are rejected on LIME HTTP APIs** — only opaque `X-Agent-Token` works there.
 
 ---
 
@@ -151,10 +151,10 @@ OAuth issuance: `POST /api/v1/modules/oauth/token` — **header only, empty body
 ## Features
 
 - **One-call site login** — `await agent.login(request_id)` wraps PoW fetch, solve, and approve with `X-Agent-Token`
-- **MCP OAuth built-in** — issue, cache, and refresh **5-minute MCP JWTs**; no manual `/oauth/token` calls in app code
+- **MCP OAuth built-in** — issue, cache, and **lazy-refresh** 5-minute MCP JWTs on the next `list_tools` / `call_tool` when near expiry; no manual `/oauth/token` in app code
 - **Typed MCP client** — `list_tools`, `call_tool`, `read_resource`, `get_prompt`, … with `mcp.types` models re-exported from `lime_agents`
 - **Automatic Proof-of-Work** — SHA-256 solver with configurable `pow_timeout` and transient retry policy
-- **Production-ready HTTP** — httpx async client, exponential backoff on 408/429/5xx, injectable client for tests
+- **Production-ready LIME HTTP** — httpx async client, exponential backoff on 408/429/5xx for **platform** calls (`login`, profile, OAuth issuance); MCP calls retry on 401 after token refresh
 - **Strict typing** — `ApprovalResult`, `AgentProfile`, `McpAccessToken`, `py.typed`, mypy-clean public API
 
 ---
@@ -173,7 +173,7 @@ OAuth issuance: `POST /api/v1/modules/oauth/token` — **header only, empty body
 | `await agent.list_resources(...)` / `read_resource(...)` / `list_prompts(...)` / `get_prompt(...)` | Full MCP facade |
 | `async with agent.mcp_session(url)` | Low-level `mcp.ClientSession` with per-URL lock |
 
-**Constructor highlights:** `agent_token` / `LIME_AGENT_TOKEN`, `base_url` / `LIME_API_BASE` (default `https://lime.pics/api/v1`), `timeout`, `max_retries`, `pow_timeout`, `serialize_mcp_per_url` (default `True`).
+**Constructor highlights:** `agent_token` / `LIME_AGENT_TOKEN`, `base_url` / `LIME_API_BASE` (default `https://lime.pics/api/v1`), `timeout`, `max_retries`, `mcp_token_refresh_skew` (default `30`, lazy refresh window), `serialize_mcp_per_url` (default `True`).
 
 **Context manager:** `async with LimeAgent() as agent:` calls `aclose()` on exit. For long-running workers, create **one** instance at startup and reuse it.
 
