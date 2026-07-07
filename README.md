@@ -169,25 +169,23 @@ Choose **`mcp` alone** when you need full control over transports, non-LIME OAut
 
 | Feature / Aspect | Official MCP SDK (`mcp`) | LIME SDK (`lime-agents-sdk`) | Benefit of LIME |
 |------------------|--------------------------|------------------------------|-----------------|
-| **Scope** | Client + server protocol stack, multiple transports | LIME **agent worker** client only (login, profile, MCP tools) | One package for LIME identity + MCP — no glue code between platform and protocol |
-| **Typical MCP tool call** | Wire `streamable_http_client` → `ClientSession` → `initialize()` → `list_tools()` / `call_tool()` yourself (~15 lines) | `await agent.list_tools(url)` / `await agent.call_tool(url, name, args)` (~3 lines) | **~70% less code**; no manual session init/teardown |
-| **LIME machine OAuth** (`X-Agent-Token` → MCP JWT) | Not built-in; you implement token fetch + Bearer header on `httpx.AsyncClient` | `POST /modules/oauth/token` (empty body); JWT auto-attached on every MCP call | Tokens fetched and injected **automatically** — zero OAuth boilerplate |
-| **Generic OAuth** | `OAuthClientProvider` (auth code + PKCE), `ClientCredentialsOAuthProvider`, `TokenStorage` protocol | Not a general OAuth library; LIME token model only | Use `mcp` when you need RFC flows outside LIME (not a LIME gap) |
-| **Token caching** | You implement `TokenStorage` (get/set tokens, client info) | In-memory cache in `_McpTokenIssuer` | **Works out of the box** — no storage layer to write |
-| **Token refresh** | `refresh_token` grant when available; expiry checked per HTTP request | **Lazy refresh** on next MCP call within `mcp_token_refresh_skew` (default 30s); **single-flight** lock | No refresh-token dance; **no race conditions** or thundering herd on `/oauth/token` |
-| **Background refresh timer** | None (refresh on next request when token invalid) | None (same lazy-on-call model) | Predictable behavior — no hidden background workers |
-| **Session pooling** | You manage `ClientSession` lifecycle per server URL | `McpSessionPool` — one pooled session per URL, shared OAuth issuer | **One session per URL**, connection reuse; parallel calls across different URLs |
-| **Same-URL concurrency** | Your responsibility | `serialize_mcp_per_url=True` by default (one in-flight op per URL) | **Safe default** — no race conditions on shared `ClientSession` |
-| **401 from MCP RS** | Your error handling | Invalidate JWT, close pooled transports, **one retry** → `McpAuthenticationError` | **Automatic recovery** without app-level token refresh loops |
-| **HTTP retries (408/429/5xx)** | Transport reconnection (`MAX_RECONNECTION_ATTEMPTS=2`); OAuth refresh on invalid token | Exponential backoff on **LIME platform** HTTP; MCP: 401 + broken-session retry only | Platform calls are resilient; MCP auth failures self-heal |
-| **Site login (PoW + approve)** | Not included | `await agent.login(request_id)` | Headless site login in one call — LIME-only |
-| **Return types** | MCP protocol models (`list_tools` → result with `.tools`) | `list[Tool]` facade; re-exports `mcp.types` | Less nesting in agent code (`len(tools)` not `len(tools.tools)`) |
+| **Scope** | Client + server protocol stack, multiple transports | LIME **agent worker** client (login, profile, MCP tools) | One package for LIME identity + MCP — no glue code |
+| **Typical MCP tool call** | `streamable_http_client` → `ClientSession` → `initialize()` → `list_tools()` / `call_tool()` (~15 lines) | `await agent.list_tools(url)` / `await agent.call_tool(url, name, args)` (~3 lines) | **~70% less code**; returns `list[Tool]` (no `.tools` nesting) |
+| **LIME machine OAuth** | Not built-in; you fetch JWT and set `Authorization` on `httpx.AsyncClient` | `POST /modules/oauth/token` (empty body); JWT auto-attached on MCP calls | Tokens fetched and injected **automatically** |
+| **Generic OAuth** | `OAuthClientProvider` (PKCE), `ClientCredentialsOAuthProvider`, `TokenStorage` | LIME token model only — not a general OAuth library | Use `mcp` for non-LIME RFC flows (by design) |
+| **Token caching & refresh** | You implement `TokenStorage`; refresh via `refresh_token` when available; no background timer | In-memory cache; **lazy refresh** within `mcp_token_refresh_skew` (30s); **single-flight** lock; no background timer | **Out of the box** — no storage layer; no races or thundering herd |
+| **Session pooling & concurrency** | You manage `ClientSession` per URL and concurrency yourself | `McpSessionPool` per URL; `serialize_mcp_per_url=True` by default | **One session per URL**; safe same-URL default; parallel across different URLs |
+| **401 from MCP RS** | Your error handling | Invalidate JWT, close transports, **one retry** → `McpAuthenticationError` | **Automatic recovery** without boilerplate |
+| **HTTP retries (408/429/5xx)** | Transport reconnection (`MAX_RECONNECTION_ATTEMPTS=2`); OAuth refresh on invalid token | Exponential backoff on **LIME platform** HTTP; MCP: 401 + broken-session retry | Platform resilience + MCP auth self-heal |
+| **Site login (PoW + approve)** | Not included | `await agent.login(request_id)` | Headless site login in one call |
 
 ### Minimal example — list tools + call
 
 **Official `mcp` (streamable HTTP + Bearer you obtained yourself):**
 
 ```python
+import asyncio
+
 import httpx
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
@@ -205,12 +203,18 @@ async def main() -> None:
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 tools = (await session.list_tools()).tools
-                result = await session.call_tool(tools[0].name, {"text": "hi"})
+                if tools:
+                    await session.call_tool(tools[0].name, {"text": "hi"})
+
+
+asyncio.run(main())
 ```
 
 **`lime-agents-sdk` (LIME OAuth + pool + facade):**
 
 ```python
+import asyncio
+
 from lime_agents import LimeAgent
 
 MCP_URL = "https://mcp.example.com/mcp"
@@ -219,7 +223,11 @@ MCP_URL = "https://mcp.example.com/mcp"
 async def main() -> None:
     async with LimeAgent() as agent:  # LIME_AGENT_TOKEN from env
         tools = await agent.list_tools(MCP_URL)
-        result = await agent.call_tool(MCP_URL, tools[0].name, {"text": "hi"})
+        if tools:
+            await agent.call_tool(MCP_URL, tools[0].name, {"text": "hi"})
+
+
+asyncio.run(main())
 ```
 
 ### When to use which SDK
@@ -240,7 +248,7 @@ async def main() -> None:
 
 `lime-agents-sdk` does **not** replace `mcp` for server authors or non-LIME OAuth — it **composes** `mcp` for the LIME machine-token model.
 
-Details: [MCP OAuth & pool](https://lime-agents-sdk.readthedocs.io/en/latest/mcp-oauth/) (Read the Docs).
+Details: [MCP OAuth & pool (source)](https://github.com/Mawyxx/lime-agents-sdk/blob/main/docs/mcp-oauth.md) · [Read the Docs](https://lime-agents-sdk.readthedocs.io/en/latest/mcp-oauth/)
 
 ---
 
