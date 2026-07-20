@@ -21,6 +21,7 @@ from mcp.types import (
 )
 
 from lime_agents._client import LimeClient
+from lime_agents._domain import extract_and_normalize_domain
 from lime_agents._errors import ApiError, AuthenticationError
 from lime_agents._mcp._pool import McpSessionPool
 from lime_agents._oauth import _McpTokenIssuer
@@ -35,10 +36,10 @@ class LimeAgent:
     """Async client for LIME agent workers.
 
     Wraps site-login approve (PoW + ``X-Agent-Token``) and MCP OAuth client calls to
-    external resource servers. MCP JWTs are issued and cached on ``list_tools`` /
-    ``call_tool``. Tokens use **lazy refresh** (no background task): the next MCP call
-    within ``mcp_token_refresh_skew`` seconds of expiry triggers ``POST /oauth/token``.
-    Use ``get_mcp_access_token()`` only when you need the raw JWT string.
+    external resource servers. Pass a required ``target`` (URL or hostname); the SDK
+    extracts the domain, issues a JWT via ``POST /oauth/token`` with JSON
+    ``{"domain"}``, and caches per domain. Tokens use **lazy refresh** (no background
+    task). Use ``get_mcp_access_token(target)`` only when you need the raw JWT string.
 
     See `LIME platform docs <https://lime.pics/docs#guide-agentSdk>`_ for HTTP details.
     """
@@ -67,7 +68,7 @@ class LimeAgent:
             mcp_token_refresh_skew: Treat MCP JWT as expired this many seconds before
                 ``expires_in``; lazy refresh runs on the next MCP call (not in background).
             mcp_read_timeout: MCP streamable HTTP read timeout seconds.
-            serialize_mcp_per_url: Serialize MCP calls per server URL when True.
+            serialize_mcp_per_url: Serialize MCP calls per resolved MCP URL when True.
             http_client: Injectable ``httpx.AsyncClient`` for tests.
 
         Raises:
@@ -167,21 +168,31 @@ class LimeAgent:
         profile_data = await self._client.get("/core/agents/me/profile")
         return AgentProfile.from_api(profile_data)
 
-    async def get_mcp_access_token(self, *, force_refresh: bool = False) -> McpAccessToken:
-        """Return a cached MCP OAuth JWT (optional — MCP facade methods auto-issue).
+    async def get_mcp_access_token(
+        self,
+        target: str,
+        *,
+        force_refresh: bool = False,
+    ) -> McpAccessToken:
+        """Return a cached MCP OAuth JWT for the domain extracted from ``target``.
 
         Args:
+            target: MCP URL or hostname (domain is extracted; port stripped for the key).
             force_refresh: When True, bypass cache and request a new token.
 
         Returns:
             ``McpAccessToken`` with ``access_token``, ``expires_in``, and ``issued_at``.
+
+        Raises:
+            ValueError: When ``target`` is empty or not a valid DNS hostname.
 
         Note:
             Prefer ``list_tools`` / ``call_tool`` for normal MCP usage. Lazy refresh
             happens automatically on those methods when the cache is near expiry.
             This method is for integrators who need the raw JWT (custom HTTP, debugging).
         """
-        return await self._oauth.get_access_token(force_refresh=force_refresh)
+        domain = extract_and_normalize_domain(target)
+        return await self._oauth.get_access_token(domain, force_refresh=force_refresh)
 
     def _get_mcp_pool(self) -> McpSessionPool:
         if self._mcp_pool is None:
@@ -193,11 +204,11 @@ class LimeAgent:
         return self._mcp_pool
 
     @asynccontextmanager
-    async def mcp_session(self, server_url: str) -> AsyncIterator[ClientSession]:
+    async def mcp_session(self, target: str) -> AsyncIterator[ClientSession]:
         """Low-level MCP session for custom protocol calls.
 
         Args:
-            server_url: Full streamable HTTP MCP endpoint.
+            target: MCP URL or hostname (resolved to streamable HTTP; OAuth domain extracted).
 
         Yields:
             Initialized ``ClientSession`` with OAuth already applied.
@@ -205,23 +216,23 @@ class LimeAgent:
         Note:
             Prefer ``list_tools`` / ``call_tool`` for normal usage.
         """
-        async with self._get_mcp_pool().session(server_url) as session:
+        async with self._get_mcp_pool().session(target) as session:
             yield session
 
-    async def list_tools(self, server_url: str) -> list[Tool]:
+    async def list_tools(self, target: str) -> list[Tool]:
         """List tools on an external MCP resource server.
 
         OAuth JWT is fetched lazily on this call (and refreshed when within
         ``mcp_token_refresh_skew`` of expiry).
 
         Args:
-            server_url: Full streamable HTTP MCP endpoint (e.g. ``https://host/mcp``).
+            target: MCP URL or hostname (e.g. ``https://host/mcp`` or ``host.example``).
 
         Returns:
             List of ``Tool`` models (not a wrapper with ``.tools`` attribute).
         """
         result = await self._get_mcp_pool().run(
-            server_url,
+            target,
             lambda session: session.list_tools(),
             retry_on_auth=_MCP_RETRY_ON_AUTH,
         )
@@ -229,14 +240,14 @@ class LimeAgent:
 
     async def call_tool(
         self,
-        server_url: str,
+        target: str,
         name: str,
         arguments: dict[str, Any] | None = None,
     ) -> CallToolResult:
         """Invoke a tool on an external MCP resource server.
 
         Args:
-            server_url: Full streamable HTTP MCP endpoint.
+            target: MCP URL or hostname.
             name: Tool name from ``list_tools``.
             arguments: JSON-serializable tool arguments.
 
@@ -244,78 +255,78 @@ class LimeAgent:
             ``CallToolResult`` from the MCP protocol.
         """
         return await self._get_mcp_pool().run(
-            server_url,
+            target,
             lambda session: session.call_tool(name, arguments or {}),
             retry_on_auth=_MCP_RETRY_ON_AUTH,
         )
 
-    async def list_resources(self, server_url: str) -> list[Resource]:
+    async def list_resources(self, target: str) -> list[Resource]:
         """List static resources on an external MCP server.
 
         Args:
-            server_url: Full streamable HTTP MCP endpoint.
+            target: MCP URL or hostname.
 
         Returns:
             List of ``Resource`` models.
         """
         result = await self._get_mcp_pool().run(
-            server_url,
+            target,
             lambda session: session.list_resources(),
             retry_on_auth=_MCP_RETRY_ON_AUTH,
         )
         return list(result.resources)
 
-    async def list_resource_templates(self, server_url: str) -> list[ResourceTemplate]:
+    async def list_resource_templates(self, target: str) -> list[ResourceTemplate]:
         """List resource templates on an external MCP server."""
         result = await self._get_mcp_pool().run(
-            server_url,
+            target,
             lambda session: session.list_resource_templates(),
             retry_on_auth=_MCP_RETRY_ON_AUTH,
         )
         return list(result.resourceTemplates)
 
-    async def list_prompts(self, server_url: str) -> list[Prompt]:
+    async def list_prompts(self, target: str) -> list[Prompt]:
         """List prompt templates on an external MCP server.
 
         Args:
-            server_url: Full streamable HTTP MCP endpoint.
+            target: MCP URL or hostname.
 
         Returns:
             List of ``Prompt`` models.
         """
         result = await self._get_mcp_pool().run(
-            server_url,
+            target,
             lambda session: session.list_prompts(),
             retry_on_auth=_MCP_RETRY_ON_AUTH,
         )
         return list(result.prompts)
 
-    async def read_resource(self, server_url: str, uri: str) -> ReadResourceResult:
+    async def read_resource(self, target: str, uri: str) -> ReadResourceResult:
         """Read one resource by URI from an external MCP server.
 
         Args:
-            server_url: Full streamable HTTP MCP endpoint.
+            target: MCP URL or hostname.
             uri: Resource URI from ``list_resources``.
 
         Returns:
             ``ReadResourceResult`` with resource contents.
         """
         return await self._get_mcp_pool().run(
-            server_url,
+            target,
             lambda session: session.read_resource(cast(Any, uri)),
             retry_on_auth=_MCP_RETRY_ON_AUTH,
         )
 
     async def get_prompt(
         self,
-        server_url: str,
+        target: str,
         name: str,
         arguments: dict[str, str] | None = None,
     ) -> GetPromptResult:
         """Fetch a rendered prompt from an external MCP server.
 
         Args:
-            server_url: Full streamable HTTP MCP endpoint.
+            target: MCP URL or hostname.
             name: Prompt name from ``list_prompts``.
             arguments: Template arguments accepted by the prompt.
 
@@ -323,14 +334,14 @@ class LimeAgent:
             ``GetPromptResult`` with message list.
         """
         return await self._get_mcp_pool().run(
-            server_url,
+            target,
             lambda session: session.get_prompt(name, arguments or {}),
             retry_on_auth=_MCP_RETRY_ON_AUTH,
         )
 
     async def set_logging_level(
         self,
-        server_url: str,
+        target: str,
         level: Literal[
             "debug",
             "info",
@@ -343,31 +354,31 @@ class LimeAgent:
         ],
     ) -> None:
         await self._get_mcp_pool().run(
-            server_url,
+            target,
             lambda session: session.set_logging_level(level),
             retry_on_auth=_MCP_RETRY_ON_AUTH,
         )
 
-    async def send_ping(self, server_url: str) -> None:
+    async def send_ping(self, target: str) -> None:
         await self._get_mcp_pool().run(
-            server_url,
+            target,
             lambda session: session.send_ping(),
             retry_on_auth=_MCP_RETRY_ON_AUTH,
         )
 
-    async def get_server_capabilities(self, server_url: str) -> ServerCapabilities:
+    async def get_server_capabilities(self, target: str) -> ServerCapabilities:
         """Return cached server capabilities from the MCP session initialize handshake."""
-        return await self._get_mcp_pool().get_server_capabilities(server_url)
+        return await self._get_mcp_pool().get_server_capabilities(target)
 
     async def send_progress_notification(
         self,
-        server_url: str,
+        target: str,
         progress_token: str,
         progress: float,
         total: float | None = None,
     ) -> None:
         await self._get_mcp_pool().run(
-            server_url,
+            target,
             lambda session: session.send_progress_notification(
                 progress_token,
                 progress,

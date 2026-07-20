@@ -18,12 +18,14 @@ class McpTransportHandle:
     def __init__(
         self,
         server_url: str,
+        domain: str,
         token_issuer: _McpTokenIssuer,
         *,
         connect_timeout: float = 30.0,
         read_timeout: float = 300.0,
     ) -> None:
         self._server_url = server_url
+        self._domain = domain
         self._token_issuer = token_issuer
         self._connect_timeout = connect_timeout
         self._read_timeout = read_timeout
@@ -44,8 +46,11 @@ class McpTransportHandle:
         return self._server_capabilities
 
     async def ensure_open(self) -> ClientSession:
-        token = await self._token_issuer.get_access_token()
-        if self._session is not None and self._token_generation == self._token_issuer.generation:
+        token = await self._token_issuer.get_access_token(self._domain)
+        if (
+            self._session is not None
+            and self._token_generation == self._token_issuer.generation_for(self._domain)
+        ):
             return self._session
         await self.close()
         return await self._open(token.access_token)
@@ -69,7 +74,7 @@ class McpTransportHandle:
         init_result = await session.initialize()
         self._server_capabilities = init_result.capabilities
         self._session = session
-        self._token_generation = self._token_issuer.generation
+        self._token_generation = self._token_issuer.generation_for(self._domain)
         return session
 
     async def close(self) -> None:

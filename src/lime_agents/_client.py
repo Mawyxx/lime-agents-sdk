@@ -54,9 +54,9 @@ class LimeClient:
     async def post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         return await self._request("POST", path, authenticated=True, json_body=body)
 
-    async def post_empty(self, path: str) -> httpx.Response:
-        """POST with empty body (OAuth token endpoint — no LIME envelope)."""
-        return await self._request_raw("POST", path, authenticated=True, json_body=None)
+    async def post_raw(self, path: str, body: dict[str, Any]) -> httpx.Response:
+        """POST JSON body and return the raw response (OAuth token — no LIME envelope)."""
+        return await self._request_raw("POST", path, authenticated=True, json_body=body)
 
     async def _request_raw(
         self,
@@ -70,6 +70,8 @@ class LimeClient:
         headers: dict[str, str] = {"Accept": "application/json"}
         if authenticated:
             headers["X-Agent-Token"] = self._agent_token
+        if json_body is not None:
+            headers["Content-Type"] = "application/json"
 
         attempt = 0
         while True:

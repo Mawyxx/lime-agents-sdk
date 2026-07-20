@@ -88,7 +88,7 @@ async def _mcp_transport_patches(session: AsyncMock):
 @pytest.mark.asyncio
 async def test_get_mcp_access_token() -> None:
     agent = _agent_with_mock_http()
-    token = await agent.get_mcp_access_token()
+    token = await agent.get_mcp_access_token("https://mcp.example.com")
     assert isinstance(token, McpAccessToken)
     await agent.aclose()
 

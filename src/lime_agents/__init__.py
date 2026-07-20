@@ -12,6 +12,7 @@ from mcp.types import (
 )
 
 from lime_agents._agent import LimeAgent
+from lime_agents._domain import extract_and_normalize_domain, resolve_mcp_http_url
 from lime_agents._errors import (
     ApiError,
     AuthenticationError,
@@ -23,7 +24,7 @@ from lime_agents._errors import (
 )
 from lime_agents._types import AgentProfile, ApprovalResult, McpAccessToken
 
-__version__ = "0.5.4"
+__version__ = "1.0.0"
 
 __all__ = [
     "AgentProfile",
@@ -46,4 +47,6 @@ __all__ = [
     "ServerCapabilities",
     "Tool",
     "__version__",
+    "extract_and_normalize_domain",
+    "resolve_mcp_http_url",
 ]

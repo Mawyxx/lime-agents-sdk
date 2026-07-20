@@ -23,15 +23,15 @@ Readable overview before auto-generated details below.
 === "Scenario 2 — MCP tools"
 
     ```python
-    await agent.list_tools(server_url: str) -> list[Tool]
+    await agent.list_tools(target: str) -> list[Tool]
 
     await agent.call_tool(
-        server_url: str,
+        target: str,
         name: str,
         arguments: dict[str, Any] | None = None,
     ) -> CallToolResult
 
-    await agent.get_mcp_access_token(*, force_refresh: bool = False) -> McpAccessToken
+    await agent.get_mcp_access_token(target: str, *, force_refresh: bool = False) -> McpAccessToken
     ```
 
 === "Setup / cleanup"
@@ -122,7 +122,7 @@ Minimum setup: `LimeAgent()` reads `LIME_AGENT_TOKEN` from the environment.
 
 ## MCP — tools and resources
 
-All MCP methods take `server_url` (full HTTP MCP endpoint). OAuth JWT is attached
+All MCP methods take `target` (MCP URL or hostname). Domain is extracted for OAuth; JWT is attached
 automatically with **lazy refresh** (see [MCP OAuth & pool](mcp-oauth.md)).
 
 ::: lime_agents.LimeAgent.list_tools

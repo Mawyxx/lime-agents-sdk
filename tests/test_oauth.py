@@ -48,7 +48,7 @@ def _client_with_response(response: httpx.Response) -> LimeClient:
 async def test_oauth_success() -> None:
     client = _client_with_response(_token_response())
     issuer = _McpTokenIssuer(client, refresh_skew=30.0)
-    token = await issuer.get_access_token()
+    token = await issuer.get_access_token("example.com")
     assert token.token_type == "Bearer"
     assert token.access_token.count(".") == 2
     assert token.expires_in == 3600
@@ -71,8 +71,8 @@ async def test_oauth_cache_hit() -> None:
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
     issuer = _McpTokenIssuer(client, refresh_skew=30.0)
-    first = await issuer.get_access_token()
-    second = await issuer.get_access_token()
+    first = await issuer.get_access_token("example.com")
+    second = await issuer.get_access_token("example.com")
     assert first.access_token == second.access_token
     assert calls["n"] == 1
     await client.aclose()
@@ -94,8 +94,8 @@ async def test_oauth_force_refresh() -> None:
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
     issuer = _McpTokenIssuer(client, refresh_skew=30.0)
-    await issuer.get_access_token()
-    await issuer.get_access_token(force_refresh=True)
+    await issuer.get_access_token("example.com")
+    await issuer.get_access_token("example.com", force_refresh=True)
     assert calls["n"] == 2
     await client.aclose()
 
@@ -116,13 +116,13 @@ async def test_oauth_refresh_when_expired() -> None:
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
     issuer = _McpTokenIssuer(client, refresh_skew=30.0)
-    issuer._cached = McpAccessToken(  # noqa: SLF001
+    issuer._cached["example.com"] = McpAccessToken(  # noqa: SLF001
         access_token="eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZ2VudF8xIn0.sig",
         token_type="Bearer",
         expires_in=60,
         issued_at=time.monotonic() - 40,
     )
-    await issuer.get_access_token()
+    await issuer.get_access_token("example.com")
     assert calls["n"] == 1
     await client.aclose()
 
@@ -138,7 +138,7 @@ async def test_oauth_invalid_client() -> None:
     client = _client_with_response(response)
     issuer = _McpTokenIssuer(client)
     with pytest.raises(AuthenticationError) as exc:
-        await issuer.get_access_token()
+        await issuer.get_access_token("example.com")
     assert exc.value.code == "invalid_client"
     await client.aclose()
 
@@ -154,7 +154,7 @@ async def test_oauth_invalid_request() -> None:
     client = _client_with_response(response)
     issuer = _McpTokenIssuer(client)
     with pytest.raises(ApiError) as exc:
-        await issuer.get_access_token()
+        await issuer.get_access_token("example.com")
     assert exc.value.code == "invalid_request"
     await client.aclose()
 
@@ -176,7 +176,7 @@ async def test_oauth_capability_denied() -> None:
     client = _client_with_response(response)
     issuer = _McpTokenIssuer(client)
     with pytest.raises(OAuthCapabilityError) as exc:
-        await issuer.get_access_token()
+        await issuer.get_access_token("example.com")
     assert exc.value.code == "OAUTH_CAPABILITY_DENIED"
     await client.aclose()
 
@@ -195,7 +195,7 @@ async def test_oauth_rate_limit_envelope() -> None:
     client = _client_with_response(response)
     issuer = _McpTokenIssuer(client)
     with pytest.raises(RateLimitError):
-        await issuer.get_access_token()
+        await issuer.get_access_token("example.com")
     await client.aclose()
 
 
@@ -209,7 +209,7 @@ async def test_oauth_invalid_token_shape() -> None:
     client = _client_with_response(response)
     issuer = _McpTokenIssuer(client)
     with pytest.raises(ApiError, match="access_token, token_type, expires_in"):
-        await issuer.get_access_token()
+        await issuer.get_access_token("example.com")
     await client.aclose()
 
 
@@ -229,7 +229,7 @@ async def test_oauth_wrong_token_type() -> None:
     client = _client_with_response(response)
     issuer = _McpTokenIssuer(client)
     with pytest.raises(ApiError, match="Bearer"):
-        await issuer.get_access_token()
+        await issuer.get_access_token("example.com")
     await client.aclose()
 
 
@@ -248,7 +248,7 @@ async def test_oauth_missing_cache_control() -> None:
     client = _client_with_response(response)
     issuer = _McpTokenIssuer(client)
     with pytest.raises(ApiError, match="Cache-Control"):
-        await issuer.get_access_token()
+        await issuer.get_access_token("example.com")
     await client.aclose()
 
 
@@ -264,7 +264,7 @@ async def test_oauth_non_jwt_access_token() -> None:
     client = _client_with_response(response)
     issuer = _McpTokenIssuer(client)
     with pytest.raises(ApiError, match="JWT"):
-        await issuer.get_access_token()
+        await issuer.get_access_token("example.com")
     await client.aclose()
 
 
@@ -274,7 +274,7 @@ async def test_oauth_invalid_json() -> None:
     client = _client_with_response(response)
     issuer = _McpTokenIssuer(client)
     with pytest.raises(LimeError, match="Invalid JSON"):
-        await issuer.get_access_token()
+        await issuer.get_access_token("example.com")
     await client.aclose()
 
 
@@ -287,7 +287,7 @@ async def test_oauth_unexpected_success_envelope() -> None:
     client = _client_with_response(response)
     issuer = _McpTokenIssuer(client)
     with pytest.raises(LimeError, match="Unexpected success"):
-        await issuer.get_access_token()
+        await issuer.get_access_token("example.com")
     await client.aclose()
 
 
@@ -297,7 +297,7 @@ async def test_oauth_envelope_missing_error() -> None:
     client = _client_with_response(response)
     issuer = _McpTokenIssuer(client)
     with pytest.raises(LimeError, match="missing error object"):
-        await issuer.get_access_token()
+        await issuer.get_access_token("example.com")
     await client.aclose()
 
 
@@ -310,7 +310,7 @@ async def test_oauth_rfc6749_rate_limit() -> None:
     client = _client_with_response(response)
     issuer = _McpTokenIssuer(client)
     with pytest.raises(RateLimitError):
-        await issuer.get_access_token()
+        await issuer.get_access_token("example.com")
     await client.aclose()
 
 
@@ -328,7 +328,7 @@ async def test_oauth_envelope_401() -> None:
     client = _client_with_response(response)
     issuer = _McpTokenIssuer(client)
     with pytest.raises(AuthenticationError):
-        await issuer.get_access_token()
+        await issuer.get_access_token("example.com")
     await client.aclose()
 
 
@@ -346,7 +346,7 @@ async def test_oauth_envelope_generic_api_error() -> None:
     client = _client_with_response(response)
     issuer = _McpTokenIssuer(client)
     with pytest.raises(ApiError) as exc:
-        await issuer.get_access_token()
+        await issuer.get_access_token("example.com")
     assert exc.value.code == "OAUTH_TOKEN_ISSUANCE_FAILED"
     await client.aclose()
 
@@ -357,7 +357,7 @@ async def test_oauth_non_dict_body() -> None:
     client = _client_with_response(response)
     issuer = _McpTokenIssuer(client)
     with pytest.raises(LimeError, match="Unexpected token response"):
-        await issuer.get_access_token()
+        await issuer.get_access_token("example.com")
     await client.aclose()
 
 
@@ -367,7 +367,7 @@ async def test_oauth_error_invalid_json_on_failure() -> None:
     client = _client_with_response(response)
     issuer = _McpTokenIssuer(client)
     with pytest.raises(LimeError, match="Invalid JSON"):
-        await issuer.get_access_token()
+        await issuer.get_access_token("example.com")
     await client.aclose()
 
 
@@ -377,7 +377,7 @@ async def test_oauth_error_non_dict_on_failure() -> None:
     client = _client_with_response(response)
     issuer = _McpTokenIssuer(client)
     with pytest.raises(LimeError, match="Unexpected response shape"):
-        await issuer.get_access_token()
+        await issuer.get_access_token("example.com")
     await client.aclose()
 
 
@@ -390,7 +390,7 @@ async def test_oauth_rfc6749_generic_api_error() -> None:
     client = _client_with_response(response)
     issuer = _McpTokenIssuer(client)
     with pytest.raises(ApiError) as exc:
-        await issuer.get_access_token()
+        await issuer.get_access_token("example.com")
     assert exc.value.code == "server_error"
     await client.aclose()
 
@@ -411,7 +411,7 @@ async def test_oauth_concurrent_refresh_single_flight() -> None:
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
     issuer = _McpTokenIssuer(client, refresh_skew=30.0)
-    await asyncio.gather(*[issuer.get_access_token() for _ in range(20)])
+    await asyncio.gather(*[issuer.get_access_token("example.com") for _ in range(20)])
     assert calls["n"] == 1
     await client.aclose()
 
@@ -432,9 +432,10 @@ async def test_oauth_double_check_cache_after_lock() -> None:
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
     issuer = _McpTokenIssuer(client, refresh_skew=30.0)
-    issuer._cached = None  # noqa: SLF001
+    issuer._cached.pop("example.com", None)  # noqa: SLF001
 
-    async def slow_issue() -> McpAccessToken:
+    async def slow_issue(domain: str) -> McpAccessToken:
+        assert domain == "example.com"
         calls["n"] += 1
         await asyncio.sleep(0.05)
         return McpAccessToken(
@@ -448,9 +449,9 @@ async def test_oauth_double_check_cache_after_lock() -> None:
 
     async def waiter() -> McpAccessToken:
         await asyncio.sleep(0.01)
-        return await issuer.get_access_token()
+        return await issuer.get_access_token("example.com")
 
-    await asyncio.gather(issuer.get_access_token(), waiter())
+    await asyncio.gather(issuer.get_access_token("example.com"), waiter())
     assert calls["n"] == 1
     await client.aclose()
 
@@ -459,8 +460,103 @@ async def test_oauth_double_check_cache_after_lock() -> None:
 async def test_invalidate_and_refresh_increments_generation() -> None:
     client = _client_with_response(_token_response())
     issuer = _McpTokenIssuer(client)
-    await issuer.get_access_token()
-    before = issuer.generation
-    await issuer.invalidate_and_refresh()
-    assert issuer.generation == before + 1
+    await issuer.get_access_token("example.com")
+    before = issuer.generation_for("example.com")
+    await issuer.invalidate_and_refresh("example.com")
+    assert issuer.generation_for("example.com") == before + 1
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_oauth_token_json_domain_wire() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["content_type"] = request.headers.get("Content-Type")
+        seen["body"] = json.loads(request.content.decode())
+        return _token_response()
+
+    client = LimeClient(
+        agent_token="at_test",
+        base_url="http://test/api/v1",
+        timeout=5.0,
+        max_retries=0,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    issuer = _McpTokenIssuer(client)
+    await issuer.get_access_token("autonomad.ai")
+    assert seen["content_type"] == "application/json"
+    assert seen["body"] == {"domain": "autonomad.ai"}
+    assert "domain=" not in str(seen["url"])
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_oauth_per_domain_cache() -> None:
+    bodies: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content.decode()))
+        return _token_response()
+
+    client = LimeClient(
+        agent_token="at_test",
+        base_url="http://test/api/v1",
+        timeout=5.0,
+        max_retries=0,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    issuer = _McpTokenIssuer(client, refresh_skew=30.0)
+    await issuer.get_access_token("a.example")
+    await issuer.get_access_token("a.example")
+    await issuer.get_access_token("b.example")
+    assert bodies == [{"domain": "a.example"}, {"domain": "b.example"}]
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_oauth_invalidate_only_one_domain() -> None:
+    calls = {"n": 0}
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return _token_response()
+
+    client = LimeClient(
+        agent_token="at_test",
+        base_url="http://test/api/v1",
+        timeout=5.0,
+        max_retries=0,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    issuer = _McpTokenIssuer(client, refresh_skew=30.0)
+    await issuer.get_access_token("a.example")
+    await issuer.get_access_token("b.example")
+    assert calls["n"] == 2
+    issuer.invalidate("a.example")
+    await issuer.get_access_token("a.example")
+    await issuer.get_access_token("b.example")
+    assert calls["n"] == 3
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_oauth_concurrent_same_domain_single_flight() -> None:
+    calls = {"n": 0}
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return _token_response()
+
+    client = LimeClient(
+        agent_token="at_test",
+        base_url="http://test/api/v1",
+        timeout=5.0,
+        max_retries=0,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    issuer = _McpTokenIssuer(client, refresh_skew=30.0)
+    await asyncio.gather(*[issuer.get_access_token("same.example") for _ in range(20)])
+    assert calls["n"] == 1
     await client.aclose()

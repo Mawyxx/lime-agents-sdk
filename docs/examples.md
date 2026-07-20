@@ -74,7 +74,7 @@ async with LimeAgent() as agent:
 
 | Mistake | Correct approach |
 |---------|------------------|
-| `get_mcp_access_token()` before every MCP call | JWT auto-issued and lazy-refreshed on `list_tools` / `call_tool` |
+| `get_mcp_access_token(target)` before every MCP call | JWT auto-issued and lazy-refreshed on `list_tools` / `call_tool` |
 | `len(tools.tools)` | `list_tools()` returns `list[Tool]` — use `len(tools)` |
 | Bearer MCP JWT on LIME APIs | Use `X-Agent-Token` for LIME; Bearer only on external MCP RS |
 | Expect `owner_id` in raw API JSON | Wire field is `user_id`; SDK maps to `AgentProfile.owner_id` |

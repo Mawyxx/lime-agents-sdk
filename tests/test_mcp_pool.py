@@ -18,13 +18,29 @@ class _FakeAuthError(Exception):
 
 def _make_issuer() -> _McpTokenIssuer:
     issuer = MagicMock(spec=_McpTokenIssuer)
-    issuer.generation = 1
-    token = MagicMock()
-    token.access_token = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZ2VudF8xIn0.sig"
-    issuer.get_access_token = AsyncMock(return_value=token)
-    issuer.invalidate_and_refresh = AsyncMock(
-        side_effect=lambda: setattr(issuer, "generation", issuer.generation + 1) or token,
-    )
+    gens: dict[str, int] = {}
+
+    def generation_for(domain: str) -> int:
+        return gens.get(domain, 1)
+
+    async def get_access_token(domain: str, *, force_refresh: bool = False):
+        gens[domain] = gens.get(domain, 1)
+        if force_refresh:
+            gens[domain] += 1
+        token = MagicMock()
+        token.access_token = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZ2VudF8xIn0.sig"
+        return token
+
+    async def invalidate_and_refresh(domain: str):
+        gens[domain] = gens.get(domain, 1) + 1
+        token = MagicMock()
+        token.access_token = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZ2VudF8xIn0.sig"
+        return token
+
+    issuer.generation_for = generation_for
+    issuer.get_access_token = AsyncMock(side_effect=get_access_token)
+    issuer.invalidate_and_refresh = AsyncMock(side_effect=invalidate_and_refresh)
+    issuer.invalidate_all = AsyncMock()
     return issuer
 
 
@@ -139,8 +155,8 @@ async def test_pool_different_urls_create_entries() -> None:
 @pytest.mark.asyncio
 async def test_pool_invalid_url() -> None:
     pool = McpSessionPool(_make_issuer())
-    with pytest.raises(ValueError, match="http"):
-        await pool.run("not-a-url", lambda s: s.list_tools())
+    with pytest.raises(ValueError, match="IP address"):
+        await pool.run("127.0.0.1", lambda s: s.list_tools())
     await pool.aclose()
 
 
@@ -245,7 +261,7 @@ async def test_refresh_all_tokens_closes_entries() -> None:
         pool = McpSessionPool(issuer)
         await pool.run("https://mcp.example.com", lambda s: s.list_tools())
         await pool.refresh_all_tokens()
-        issuer.invalidate_and_refresh.assert_awaited_once()
+        issuer.invalidate_all.assert_awaited_once()
         await pool.aclose()
 
 

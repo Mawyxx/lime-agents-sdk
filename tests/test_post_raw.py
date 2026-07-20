@@ -21,14 +21,15 @@ def _token_ok() -> bytes:
 
 
 @pytest.mark.asyncio
-async def test_post_empty_success() -> None:
+async def test_post_raw_json_domain_success() -> None:
     seen: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["method"] = request.method
         seen["token"] = request.headers.get("X-Agent-Token")
         seen["content_type"] = request.headers.get("Content-Type")
-        seen["body"] = request.content
+        seen["body"] = json.loads(request.content.decode())
+        seen["url"] = str(request.url)
         return httpx.Response(
             200,
             content=_token_ok(),
@@ -43,17 +44,18 @@ async def test_post_empty_success() -> None:
         max_retries=0,
         http_client=http_client,
     )
-    response = await client.post_empty("/modules/oauth/token")
+    response = await client.post_raw("/modules/oauth/token", {"domain": "autonomad.ai"})
     assert response.status_code == 200
     assert seen["method"] == "POST"
     assert seen["token"] == "at_test_token"
-    assert seen["content_type"] is None
-    assert seen["body"] == b""
+    assert seen["content_type"] == "application/json"
+    assert seen["body"] == {"domain": "autonomad.ai"}
+    assert "domain=" not in seen["url"]
     await client.aclose()
 
 
 @pytest.mark.asyncio
-async def test_post_empty_retries_on_503() -> None:
+async def test_post_raw_retries_on_503() -> None:
     calls = {"n": 0}
 
     def handler(_: httpx.Request) -> httpx.Response:
@@ -69,14 +71,14 @@ async def test_post_empty_retries_on_503() -> None:
         max_retries=2,
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
-    response = await client.post_empty("/modules/oauth/token")
+    response = await client.post_raw("/modules/oauth/token", {"domain": "example.com"})
     assert response.status_code == 200
     assert calls["n"] == 2
     await client.aclose()
 
 
 @pytest.mark.asyncio
-async def test_post_empty_no_retry_on_400() -> None:
+async def test_post_raw_no_retry_on_400() -> None:
     calls = {"n": 0}
 
     def handler(_: httpx.Request) -> httpx.Response:
@@ -93,14 +95,14 @@ async def test_post_empty_no_retry_on_400() -> None:
         max_retries=2,
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
-    response = await client.post_empty("/modules/oauth/token")
+    response = await client.post_raw("/modules/oauth/token", {"domain": "example.com"})
     assert response.status_code == 400
     assert calls["n"] == 1
     await client.aclose()
 
 
 @pytest.mark.asyncio
-async def test_post_empty_transport_error_retries() -> None:
+async def test_post_raw_transport_error_retries() -> None:
     calls = {"n": 0}
 
     def handler(_: httpx.Request) -> httpx.Response:
@@ -115,6 +117,6 @@ async def test_post_empty_transport_error_retries() -> None:
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
     with pytest.raises(LimeError, match="refused"):
-        await client.post_empty("/modules/oauth/token")
+        await client.post_raw("/modules/oauth/token", {"domain": "example.com"})
     assert calls["n"] == 2
     await client.aclose()

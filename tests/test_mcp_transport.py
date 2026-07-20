@@ -13,7 +13,7 @@ from lime_agents._oauth import _McpTokenIssuer
 
 def test_transport_session_before_open() -> None:
     issuer = MagicMock(spec=_McpTokenIssuer)
-    handle = McpTransportHandle("https://mcp.example.com", issuer)
+    handle = McpTransportHandle("https://mcp.example.com", "example.com", issuer)
     with pytest.raises(RuntimeError, match="not open"):
         _ = handle.session
 
@@ -21,10 +21,12 @@ def test_transport_session_before_open() -> None:
 @pytest.mark.asyncio
 async def test_transport_reuses_open_session() -> None:
     issuer = MagicMock(spec=_McpTokenIssuer)
-    issuer.generation = 1
+    issuer.generation_for = MagicMock(return_value=1)
     token = MagicMock()
     token.access_token = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZ2VudF8xIn0.sig"
     issuer.get_access_token = AsyncMock(return_value=token)
+    issuer.invalidate_and_refresh = AsyncMock(return_value=token)
+    issuer.invalidate_all = AsyncMock()
 
     session = AsyncMock()
     init_result = InitializeResult(
@@ -51,7 +53,7 @@ async def test_transport_reuses_open_session() -> None:
         patch("lime_agents._mcp._transport.streamable_http_client", fake_streamable_http_client),
         patch("lime_agents._mcp._transport.ClientSession", fake_client_session),
     ):
-        handle = McpTransportHandle("https://mcp.example.com", issuer)
+        handle = McpTransportHandle("https://mcp.example.com", "example.com", issuer)
         first = await handle.ensure_open()
         second = await handle.ensure_open()
         assert first is second
@@ -63,12 +65,12 @@ async def test_transport_reuses_open_session() -> None:
 @pytest.mark.asyncio
 async def test_transport_close_swallows_stack_errors() -> None:
     issuer = MagicMock(spec=_McpTokenIssuer)
-    handle = McpTransportHandle("https://mcp.example.com", issuer)
+    handle = McpTransportHandle("https://mcp.example.com", "example.com", issuer)
     handle._stack.aclose = AsyncMock(side_effect=RuntimeError("stack boom"))  # noqa: SLF001
     await handle.close()
 
 
 def test_transport_server_capabilities_none_before_open() -> None:
     issuer = MagicMock(spec=_McpTokenIssuer)
-    handle = McpTransportHandle("https://mcp.example.com", issuer)
+    handle = McpTransportHandle("https://mcp.example.com", "example.com", issuer)
     assert handle.server_capabilities is None

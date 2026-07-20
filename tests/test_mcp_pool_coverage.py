@@ -20,13 +20,29 @@ def _duck_exception_group(message: str, exceptions: list[BaseException]) -> Base
 
 def _make_issuer() -> _McpTokenIssuer:
     issuer = MagicMock(spec=_McpTokenIssuer)
-    issuer.generation = 1
-    token = MagicMock()
-    token.access_token = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZ2VudF8xIn0.sig"
-    issuer.get_access_token = AsyncMock(return_value=token)
-    issuer.invalidate_and_refresh = AsyncMock(
-        side_effect=lambda: setattr(issuer, "generation", issuer.generation + 1) or token,
-    )
+    gens: dict[str, int] = {}
+
+    def generation_for(domain: str) -> int:
+        return gens.get(domain, 1)
+
+    async def get_access_token(domain: str, *, force_refresh: bool = False):
+        gens[domain] = gens.get(domain, 1)
+        if force_refresh:
+            gens[domain] += 1
+        token = MagicMock()
+        token.access_token = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZ2VudF8xIn0.sig"
+        return token
+
+    async def invalidate_and_refresh(domain: str):
+        gens[domain] = gens.get(domain, 1) + 1
+        token = MagicMock()
+        token.access_token = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhZ2VudF8xIn0.sig"
+        return token
+
+    issuer.generation_for = generation_for
+    issuer.get_access_token = AsyncMock(side_effect=get_access_token)
+    issuer.invalidate_and_refresh = AsyncMock(side_effect=invalidate_and_refresh)
+    issuer.invalidate_all = AsyncMock()
     return issuer
 
 
@@ -62,7 +78,7 @@ async def test_pool_get_server_capabilities_empty_fallback() -> None:
         patch("lime_agents._mcp._transport.ClientSession", fake_client_session),
     ):
         pool = McpSessionPool(_make_issuer())
-        entry = await pool._get_entry("https://mcp.example.com")  # noqa: SLF001
+        entry = await pool._get_entry("https://mcp.example.com", "mcp.example.com")  # noqa: SLF001
         async with entry.connect_lock:
             await entry.transport.ensure_open()
         entry.transport._server_capabilities = None  # noqa: SLF001
@@ -94,7 +110,7 @@ async def test_pool_broken_session_reconnect() -> None:
 @pytest.mark.asyncio
 async def test_pool_aclose_swallows_shutdown_noise() -> None:
     pool = McpSessionPool(_make_issuer())
-    entry = await pool._get_entry("https://mcp.example.com")  # noqa: SLF001
+    entry = await pool._get_entry("https://mcp.example.com", "mcp.example.com")  # noqa: SLF001
 
     async def noisy_close() -> None:
         raise RuntimeError("cancel scope mismatch during shutdown")
@@ -107,7 +123,7 @@ async def test_pool_aclose_swallows_shutdown_noise() -> None:
 @pytest.mark.asyncio
 async def test_pool_aclose_logs_unexpected_close_error(caplog: pytest.LogCaptureFixture) -> None:
     pool = McpSessionPool(_make_issuer())
-    entry = await pool._get_entry("https://mcp.example.com")  # noqa: SLF001
+    entry = await pool._get_entry("https://mcp.example.com", "mcp.example.com")  # noqa: SLF001
 
     async def failing_close() -> None:
         raise RuntimeError("close failed hard")

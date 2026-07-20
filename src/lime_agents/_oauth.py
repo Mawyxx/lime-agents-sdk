@@ -21,49 +21,79 @@ _RFC6749_KEYS = frozenset({"access_token", "token_type", "expires_in"})
 
 
 class _McpTokenIssuer:
-    """Issues and caches MCP access tokens via LIME OAuth (ADR 0081 v3).
+    """Issues and caches MCP access tokens per normalized domain (ADR 0081 v11).
 
-    Uses **lazy refresh**: no background timer. On each ``get_access_token()`` call the
-    cache is returned while valid; when ``expires_in - refresh_skew`` is reached the next
-    caller fetches a new JWT under ``_refresh_lock`` (single-flight).
+    Uses **lazy refresh**: no background timer. On each ``get_access_token(domain)``
+    call the per-domain cache is returned while valid; when
+    ``expires_in - refresh_skew`` is reached the next caller fetches a new JWT
+    under that domain's lock (single-flight).
     """
 
     def __init__(self, client: LimeClient, *, refresh_skew: float = 30.0) -> None:
         self._client = client
         self._refresh_skew = refresh_skew
-        self._cached: McpAccessToken | None = None
-        self._generation = 0
-        self._refresh_lock = asyncio.Lock()
+        self._cached: dict[str, McpAccessToken] = {}
+        self._generations: dict[str, int] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._meta_lock = asyncio.Lock()
 
-    @property
-    def generation(self) -> int:
-        return self._generation
+    def generation_for(self, domain: str) -> int:
+        return self._generations.get(domain, 0)
 
-    async def get_access_token(self, *, force_refresh: bool = False) -> McpAccessToken:
-        if not force_refresh and self._cached is not None and not self._is_expired(self._cached):
-            return self._cached
+    def invalidate(self, domain: str) -> None:
+        """Drop the cached token for ``domain`` only."""
+        self._cached.pop(domain, None)
 
-        async with self._refresh_lock:
-            if (
-                not force_refresh
-                and self._cached is not None
-                and not self._is_expired(self._cached)
-            ):
-                return self._cached
-            token = await self._issue_token()
-            self._cached = token
-            self._generation += 1
+    async def get_access_token(
+        self,
+        domain: str,
+        *,
+        force_refresh: bool = False,
+    ) -> McpAccessToken:
+        if not force_refresh:
+            cached = self._cached.get(domain)
+            if cached is not None and not self._is_expired(cached):
+                return cached
+
+        lock = await self._lock_for(domain)
+        async with lock:
+            if not force_refresh:
+                cached = self._cached.get(domain)
+                if cached is not None and not self._is_expired(cached):
+                    return cached
+            token = await self._issue_token(domain)
+            self._cached[domain] = token
+            self._generations[domain] = self._generations.get(domain, 0) + 1
             return token
 
-    async def invalidate_and_refresh(self) -> McpAccessToken:
-        return await self.get_access_token(force_refresh=True)
+    async def invalidate_and_refresh(self, domain: str) -> McpAccessToken:
+        self.invalidate(domain)
+        return await self.get_access_token(domain, force_refresh=True)
+
+    async def invalidate_all(self) -> None:
+        """Drop every cached domain token (e.g. agent shutdown / full refresh)."""
+        self._cached.clear()
 
     def _is_expired(self, token: McpAccessToken) -> bool:
         elapsed = time.monotonic() - token.issued_at
         return elapsed >= (token.expires_in - self._refresh_skew)
 
-    async def _issue_token(self) -> McpAccessToken:
-        response = await self._client.post_empty(_OAUTH_TOKEN_PATH)
+    async def _lock_for(self, domain: str) -> asyncio.Lock:
+        lock = self._locks.get(domain)
+        if lock is not None:
+            return lock
+        async with self._meta_lock:
+            lock = self._locks.get(domain)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._locks[domain] = lock
+            return lock
+
+    async def _issue_token(self, domain: str) -> McpAccessToken:
+        response = await self._client.post_raw(
+            _OAUTH_TOKEN_PATH,
+            {"domain": domain},
+        )
         if response.status_code == 200:
             return self._parse_success(response)
         self._raise_token_error(response)

@@ -77,7 +77,7 @@ async with LimeAgent() as agent:
 
 **You need:** same `LIME_AGENT_TOKEN`. Token is fetched automatically on each MCP call
 (**lazy refresh** ~30s before expiry — no background worker). Do **not** call
-`get_mcp_access_token()` unless you write custom HTTP.
+`get_mcp_access_token(target)` unless you write custom HTTP.
 
 → [Quick Start — MCP tools](quickstart.md#scenario-2) · [MCP OAuth & pool](mcp-oauth.md)
 
@@ -89,9 +89,9 @@ async with LimeAgent() as agent:
 | **Setup** | `aclose()` | `await agent.aclose()` | — |
 | **Site login** | `login()` | `await agent.login(request_id: str)` | `ApprovalResult` |
 | **Profile** | `get_profile()` | `await agent.get_profile()` | `AgentProfile` |
-| **MCP** | `list_tools()` | `await agent.list_tools(server_url: str)` | `list[Tool]` |
+| **MCP** | `list_tools()` | `await agent.list_tools(target: str)` | `list[Tool]` |
 | **MCP** | `call_tool()` | `await agent.call_tool(url, name, args)` | `CallToolResult` |
-| **MCP** | `get_mcp_access_token()` | `await agent.get_mcp_access_token()` | `McpAccessToken` |
+| **MCP** | `get_mcp_access_token(target)` | `await agent.get_mcp_access_token("https://mcp.example.com")` | `McpAccessToken` |
 
 Full signatures: [API Reference](api.md).
 

@@ -52,7 +52,7 @@ asyncio.run(main())
 ### What happens
 
 1. Your agent knows the URL of an **external MCP server**.
-2. You call `list_tools(url)` then `call_tool(url, name, args)`.
+2. You call `list_tools(target)` then `call_tool(target, name, args)`.
 3. SDK gets a temporary token from LIME automatically (**lazy refresh** on each MCP
    call when the cache is within `mcp_token_refresh_skew` seconds of expiry).
 
@@ -66,15 +66,15 @@ import os
 
 from lime_agents import LimeAgent
 
-MCP_URL = "https://your-mcp-server.example/mcp"
+TARGET = "https://your-mcp-server.example/mcp"  # or bare host: your-mcp-server.example
 
 async def main() -> None:
     async with LimeAgent(agent_token=os.environ["LIME_AGENT_TOKEN"]) as agent:
-        tools = await agent.list_tools(MCP_URL)
+        tools = await agent.list_tools(TARGET)
         print(f"Found {len(tools)} tools")
 
         if tools:
-            result = await agent.call_tool(MCP_URL, tools[0].name, {"key": "value"})
+            result = await agent.call_tool(TARGET, tools[0].name, {"key": "value"})
             print(result.content)
 
 asyncio.run(main())
@@ -85,11 +85,11 @@ asyncio.run(main())
 | Order | Method | Input | Output |
 |-------|--------|-------|--------|
 | 1 | `LimeAgent()` | `LIME_AGENT_TOKEN` | client ready |
-| 2 | `list_tools(server_url)` | MCP HTTP URL | `list[Tool]` |
-| 3 | `call_tool(server_url, name, args)` | tool name + JSON | `CallToolResult` |
+| 2 | `list_tools(target)` | MCP URL or hostname | `list[Tool]` |
+| 3 | `call_tool(target, name, args)` | tool name + JSON | `CallToolResult` |
 
 !!! warning "Common mistake"
-    Do **not** call `get_mcp_access_token()` before every MCP call — tokens are handled
+    Do **not** call `get_mcp_access_token(target)` before every MCP call — tokens are handled
     inside `list_tools` / `call_tool`.
 
 → [`list_tools`](api.md#lime_agents.LimeAgent.list_tools),

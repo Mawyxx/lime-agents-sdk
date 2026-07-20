@@ -24,7 +24,7 @@ Use this package when you build **agent workers** (not site backends). Pair with
 |---------|----------------|
 | Manual PoW + approve HTTP | `await agent.login(request_id)` — challenge fetch, SHA-256 PoW, approve, retries |
 | Two auth lanes (LIME vs MCP) | `X-Agent-Token` for LIME APIs; short-lived **MCP JWT** for external MCP servers |
-| MCP OAuth boilerplate | `list_tools` / `call_tool` auto-issue + cache MCP JWT; optional `get_mcp_access_token()` for the raw token |
+| MCP OAuth boilerplate | `list_tools` / `call_tool` take required `target`; auto-issue + **per-domain** MCP JWT cache; optional `get_mcp_access_token(target)` for the raw token |
 | Fragile agent credentials | Env-based `LIME_AGENT_TOKEN` (Stripe-style), typed errors, `py.typed` |
 
 ### Two JWT flows (do not mix them)
@@ -34,7 +34,7 @@ LIME uses **two different JWT artifacts**. This SDK covers the **agent worker** 
 | Flow | Who gets the JWT | Audience / use | This SDK |
 |------|------------------|----------------|---------|
 | **Site login passport** | **Site backend** (via SSE) | `aud=lime-site-login` — cryptographic passport for the logged-in session | Agent calls `login()` only; site verifies JWT with [`lime-sites-sdk`](https://github.com/Mawyxx/lime-site-sdk) + Core JWKS |
-| **MCP access token** | **Agent worker** (cached in SDK; not sent to site) | `aud=mcp` — Bearer token for **external** MCP resource servers | MCP facade methods auto-issue + cache; optional `get_mcp_access_token()` if you need the raw JWT |
+| **MCP access token** | **Agent worker** (cached in SDK; not sent to site) | `aud=mcp` — Bearer token for **external** MCP resource servers | MCP facade methods require `target`; auto-issue + per-domain cache; optional `get_mcp_access_token(target)` for the raw JWT |
 
 The MCP JWT is signed with LIME Core keys (JWKS at `GET /api/v1/core/.well-known/jwks.json`). Default TTL is **300 seconds (5 minutes)**. The SDK caches it in your worker and performs **lazy refresh** on the next MCP call when the token is within **~30 seconds of expiry** (`mcp_token_refresh_skew`, default `30`) — there is **no background refresh task**. You send the JWT to **remote** MCP servers as `Authorization: Bearer` — not to the site backend. **MCP JWTs are rejected on LIME HTTP APIs** — only opaque `X-Agent-Token` works there.
 
@@ -103,7 +103,7 @@ asyncio.run(main())
 
 ### Scenario B — MCP tools (MCP OAuth + streamable HTTP client)
 
-**Story:** Your agent calls tools on an **external** MCP resource server. LIME issues a **short-lived MCP JWT** (~5 min) from your `X-Agent-Token`. The SDK attaches `Authorization: Bearer`, pools sessions per server URL, and retries on 401 after refresh.
+**Story:** Your agent calls tools on an **external** MCP resource server. LIME issues a **short-lived MCP JWT** (~5 min) from your `X-Agent-Token`. Pass a `target` (URL or hostname). The SDK extracts the domain, posts JSON `{"domain"}` to LIME OAuth, caches JWTs per domain, pools sessions per URL, and on MCP 401 invalidates that domain only then retries once.
 
 ```python
 import asyncio
@@ -117,7 +117,7 @@ MCP_ENDPOINT = "https://mcp.example.com/mcp"  # full streamable HTTP path, not j
 async def main() -> None:
     async with LimeAgent(agent_token=os.environ["LIME_AGENT_TOKEN"]) as agent:
         # MCP JWT (~300s TTL) is fetched automatically on first list_tools / call_tool
-        tools: list[Tool] = await agent.list_tools(MCP_ENDPOINT)
+        tools: list[Tool] = await agent.list_tools(MCP_ENDPOINT)  # target=
         print([t.name for t in tools])
 
         result: CallToolResult = await agent.call_tool(
@@ -314,3 +314,7 @@ CI runs on Python 3.10–3.13 with **100% line coverage** on `src/lime_agents`.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Versioning
+
+See [CHANGELOG.md](CHANGELOG.md). **1.0.0** introduces Zero-Touch `target` (breaking).

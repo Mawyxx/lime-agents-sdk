@@ -29,7 +29,7 @@ async def test_get_mcp_access_token_live() -> None:
 
     base_url = os.getenv("LIME_API_BASE", "https://lime.pics/api/v1").rstrip("/")
     async with LimeAgent(agent_token=token, base_url=base_url) as agent:
-        mcp_token = await agent.get_mcp_access_token()
+        mcp_token = await agent.get_mcp_access_token(os.environ.get("LIME_MCP_TARGET", "https://mcp.example.com"))
         profile = await agent.get_profile()
         assert mcp_token.token_type == "Bearer"
         assert mcp_token.access_token.count(".") == 2
@@ -45,7 +45,7 @@ async def test_mcp_jwt_rejected_on_lime_profile() -> None:
 
     base_url = os.getenv("LIME_API_BASE", "https://lime.pics/api/v1").rstrip("/")
     async with LimeAgent(agent_token=token, base_url=base_url) as agent:
-        mcp_token = await agent.get_mcp_access_token()
+        mcp_token = await agent.get_mcp_access_token(os.environ.get("LIME_MCP_TARGET", "https://mcp.example.com"))
 
     async with httpx.AsyncClient() as client:
         response = await client.get(

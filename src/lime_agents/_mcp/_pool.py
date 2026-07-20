@@ -5,11 +5,11 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import TYPE_CHECKING, TypeVar
-from urllib.parse import urlparse
 
 from anyio import BrokenResourceError
 from mcp.types import ServerCapabilities
 
+from lime_agents._domain import extract_and_normalize_domain, resolve_mcp_http_url
 from lime_agents._errors import McpAuthenticationError
 from lime_agents._mcp._transport import McpTransportHandle
 
@@ -35,16 +35,19 @@ class _ServerEntry:
     def __init__(
         self,
         url: str,
+        domain: str,
         token_issuer: _McpTokenIssuer,
         *,
         connect_timeout: float,
         read_timeout: float,
     ) -> None:
         self.url = url
+        self.domain = domain
         self.lock = asyncio.Lock()
         self.connect_lock = asyncio.Lock()
         self.transport = McpTransportHandle(
             url,
+            domain,
             token_issuer,
             connect_timeout=connect_timeout,
             read_timeout=read_timeout,
@@ -52,7 +55,7 @@ class _ServerEntry:
 
 
 class McpSessionPool:
-    """Per-server_url MCP session pool with shared OAuth token issuer."""
+    """Per-target MCP session pool with per-domain OAuth token issuer."""
 
     def __init__(
         self,
@@ -72,7 +75,7 @@ class McpSessionPool:
 
     async def run(
         self,
-        server_url: str,
+        target: str,
         operation: Callable[[ClientSession], Awaitable[T]],
         *,
         retry_on_auth: bool = False,
@@ -80,19 +83,19 @@ class McpSessionPool:
         if self._closed:
             raise RuntimeError("MCP session pool is closed")
 
-        normalized = self._normalize_url(server_url)
-        entry = await self._get_entry(normalized)
+        url, domain = self._resolve_target(target)
+        entry = await self._get_entry(url, domain)
         lock_ctx = entry.lock if self._serialize_per_url else _NullAsyncContext()
 
         async with lock_ctx:
             return await self._execute_operation(entry, operation, retry_on_auth=retry_on_auth)
 
-    async def get_server_capabilities(self, server_url: str) -> ServerCapabilities:
+    async def get_server_capabilities(self, target: str) -> ServerCapabilities:
         if self._closed:
             raise RuntimeError("MCP session pool is closed")
 
-        normalized = self._normalize_url(server_url)
-        entry = await self._get_entry(normalized)
+        url, domain = self._resolve_target(target)
+        entry = await self._get_entry(url, domain)
         lock_ctx = entry.lock if self._serialize_per_url else _NullAsyncContext()
 
         async with lock_ctx:
@@ -102,12 +105,12 @@ class McpSessionPool:
             return caps if caps is not None else ServerCapabilities()
 
     @asynccontextmanager
-    async def session(self, server_url: str) -> AsyncIterator[ClientSession]:
+    async def session(self, target: str) -> AsyncIterator[ClientSession]:
         if self._closed:
             raise RuntimeError("MCP session pool is closed")
 
-        normalized = self._normalize_url(server_url)
-        entry = await self._get_entry(normalized)
+        url, domain = self._resolve_target(target)
+        entry = await self._get_entry(url, domain)
         async with entry.lock:
             async with entry.connect_lock:
                 mcp_session = await entry.transport.ensure_open()
@@ -117,7 +120,7 @@ class McpSessionPool:
                 pass
 
     async def refresh_all_tokens(self) -> None:
-        await self._token_issuer.invalidate_and_refresh()
+        await self._token_issuer.invalidate_all()
         async with self._pool_lock:
             entries = list(self._entries.values())
         for entry in entries:
@@ -178,10 +181,10 @@ class McpSessionPool:
         raise last_exc  # pragma: no cover
 
     async def _refresh_after_auth_failure(self, entry: _ServerEntry) -> None:
-        await self._token_issuer.invalidate_and_refresh()
+        await self._token_issuer.invalidate_and_refresh(entry.domain)
         async with self._pool_lock:
-            entries = list(self._entries.values())
-        for pool_entry in entries:
+            same_domain = [e for e in self._entries.values() if e.domain == entry.domain]
+        for pool_entry in same_domain:
             if pool_entry is entry:
                 continue
             async with pool_entry.lock:
@@ -189,12 +192,13 @@ class McpSessionPool:
         async with entry.connect_lock:
             await entry.transport.close()
 
-    async def _get_entry(self, normalized_url: str) -> _ServerEntry:
+    async def _get_entry(self, normalized_url: str, domain: str) -> _ServerEntry:
         async with self._pool_lock:
             entry = self._entries.get(normalized_url)
             if entry is None:
                 entry = _ServerEntry(
                     normalized_url,
+                    domain,
                     self._token_issuer,
                     connect_timeout=self._connect_timeout,
                     read_timeout=self._read_timeout,
@@ -203,14 +207,10 @@ class McpSessionPool:
             return entry
 
     @staticmethod
-    def _normalize_url(server_url: str) -> str:
-        normalized = server_url.strip().rstrip("/")
-        if not normalized:
-            raise ValueError("server_url must be a non-empty string")
-        parsed = urlparse(normalized)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise ValueError("server_url must be an http(s) URL")
-        return normalized
+    def _resolve_target(target: str) -> tuple[str, str]:
+        domain = extract_and_normalize_domain(target)
+        url = resolve_mcp_http_url(target)
+        return url, domain
 
     @staticmethod
     def _exception_group_members(exc: BaseException) -> tuple[BaseException, ...] | None:

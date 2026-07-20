@@ -10,7 +10,7 @@ from lime_agents import LimeAgent
 
 @pytest.fixture
 def mcp_server_url() -> str:
-    host = os.getenv("MCP_RS_HOST", "127.0.0.1")
+    host = os.getenv("MCP_RS_HOST", "localhost")
     port = os.getenv("MCP_RS_PORT", "9000")
     return os.getenv("MCP_SERVER_URL", f"http://{host}:{port}").rstrip("/")
 
@@ -25,7 +25,7 @@ async def test_bearer_lane_against_mcp_test_server(mcp_server_url: str) -> None:
 
     base_url = os.getenv("LIME_API_BASE", "https://lime.pics/api/v1").rstrip("/")
     async with LimeAgent(agent_token=token, base_url=base_url) as agent:
-        mcp_token = await agent.get_mcp_access_token()
+        mcp_token = await agent.get_mcp_access_token(mcp_server_url)
 
     async with httpx.AsyncClient(trust_env=False) as client:
         response = await client.post(
