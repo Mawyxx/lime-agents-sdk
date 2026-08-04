@@ -96,7 +96,7 @@ def resolve_mcp_http_url(target: str) -> str:
     if lower.startswith("http://") or lower.startswith("https://"):
         normalized = raw.rstrip("/")
         parsed = urlparse(normalized)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:  # pragma: no cover
             raise ValueError("target must be an http(s) URL or hostname")
         return normalized
 

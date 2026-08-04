@@ -325,6 +325,8 @@ async def test_pool_retry_non_auth_failure_on_second_attempt() -> None:
 async def test_refresh_after_auth_failure_closes_other_entries() -> None:
     session = AsyncMock()
     session.call_tool = AsyncMock(side_effect=_FakeAuthError("401"))
+    # list_tools succeeds so the sibling entry stays open in the pool
+    session.list_tools = AsyncMock(return_value=MagicMock())
     fake_http, fake_session = _mock_transport_stack(session)
     issuer = _make_issuer()
 
@@ -333,10 +335,11 @@ async def test_refresh_after_auth_failure_closes_other_entries() -> None:
         patch("lime_agents._mcp._transport.ClientSession", fake_session),
     ):
         pool = McpSessionPool(issuer)
-        await pool.run("https://mcp1.example.com", lambda s: s.list_tools())
+        # Same DNS domain, different paths → two pool entries, one domain cache
+        await pool.run("https://mcp.example.com/a", lambda s: s.list_tools())
         with pytest.raises(McpAuthenticationError):
             await pool.run(
-                "https://mcp2.example.com",
+                "https://mcp.example.com/b",
                 lambda s: s.call_tool("echo", {}),
                 retry_on_auth=True,
             )

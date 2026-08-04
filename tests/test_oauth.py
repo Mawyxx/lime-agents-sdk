@@ -56,6 +56,29 @@ async def test_oauth_success() -> None:
 
 
 @pytest.mark.asyncio
+async def test_oauth_invalidate_all() -> None:
+    calls = {"n": 0}
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return _token_response()
+
+    client = LimeClient(
+        agent_token="at_test",
+        base_url="http://test/api/v1",
+        timeout=5.0,
+        max_retries=0,
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    issuer = _McpTokenIssuer(client, refresh_skew=30.0)
+    await issuer.get_access_token("example.com")
+    await issuer.invalidate_all()
+    await issuer.get_access_token("example.com")
+    assert calls["n"] == 2
+    await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_oauth_cache_hit() -> None:
     calls = {"n": 0}
 

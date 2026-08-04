@@ -40,6 +40,16 @@ def test_extract_and_normalize_domain_rejects(target: str) -> None:
         extract_and_normalize_domain(target)
 
 
+def test_extract_rejects_non_string() -> None:
+    with pytest.raises(ValueError, match="non-empty string"):
+        extract_and_normalize_domain(123)  # type: ignore[arg-type]
+
+
+def test_extract_rejects_port_only() -> None:
+    with pytest.raises(ValueError, match="valid DNS hostname"):
+        extract_and_normalize_domain(":443")
+
+
 @pytest.mark.parametrize(
     ("target", "expected"),
     [
@@ -57,3 +67,13 @@ def test_resolve_mcp_http_url(target: str, expected: str) -> None:
 def test_resolve_rejects_invalid_target() -> None:
     with pytest.raises(ValueError):
         resolve_mcp_http_url("127.0.0.1")
+
+
+def test_resolve_rejects_non_string() -> None:
+    with pytest.raises(ValueError, match="non-empty string"):
+        resolve_mcp_http_url(None)  # type: ignore[arg-type]
+
+
+def test_resolve_rejects_whitespace_only() -> None:
+    with pytest.raises(ValueError, match="non-empty string"):
+        resolve_mcp_http_url("   ")
