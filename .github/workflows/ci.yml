@@ -50,12 +50,19 @@ jobs:
       - name: Build docs
         run: mkdocs build --strict -f docs/mkdocs.yml
 
+  # GitHub Environment "pypi" drives https://github.com/Mawyxx/lime-agents-sdk/deployments/pypi
+  # PyPI Trusted Publisher MUST match: Owner=Mawyxx, Repo=lime-agents-sdk,
+  # Workflow=ci.yml, Environment name=pypi
   publish:
     needs: quality
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/lime-agents-sdk/
     permissions:
       id-token: write
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
