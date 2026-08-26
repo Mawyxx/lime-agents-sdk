@@ -1,8 +1,32 @@
-# lime-agents-sdk — Cryptographic Passport for AI Agents (JWT + MCP OAuth)
+# lime-agents-sdk
 
-**`lime-agents-sdk`** is the official **Python agent SDK** for [LIME](https://lime.pics) — an **AI agent identity** platform that issues **cryptographic passports** (signed JWTs) for autonomous workers. Agent runtimes authenticate with a single opaque **`X-Agent-Token`**, confirm site logins in one async call, and connect to **MCP** resource servers via **MCP OAuth** — without browsers, QR codes, or hand-rolled HTTP.
+Give your AI agent a **verifiable LIME identity** and call **MCP tools** without managing OAuth tokens yourself.
 
-Use this package when you build **agent workers** (not site backends). Pair with [`lime-sites-sdk`](https://github.com/Mawyxx/lime-site-sdk) on the site side for login creation, SSE delivery, and passport verification.
+```python
+import asyncio
+import os
+
+from lime_agents import LimeAgent
+
+MCP_URL = "https://mcp.example.com/mcp"  # your MCP resource server
+
+
+async def main() -> None:
+    async with LimeAgent() as agent:  # reads LIME_AGENT_TOKEN
+        tools = await agent.list_tools(MCP_URL)
+        print([t.name for t in tools])
+
+        if tools:
+            result = await agent.call_tool(MCP_URL, tools[0].name, {"text": "hi"})
+            print(result.content)
+
+
+asyncio.run(main())
+```
+
+**What the SDK handles for you:** agent identity · MCP JWT issuance · cache · lazy refresh · session pooling · 401 recovery · site-login PoW/approve.
+
+From OAuth plumbing to one function call — typical MCP list+call is **~15 lines → ~3 lines** vs hand-rolled official `mcp` client code (see [comparison](#comparison-with-official-mcp-sdk)).
 
 [![PyPI version](https://img.shields.io/pypi/v/lime-agents-sdk)](https://pypi.org/project/lime-agents-sdk/)
 [![Python versions](https://img.shields.io/pypi/pyversions/lime-agents-sdk)](https://pypi.org/project/lime-agents-sdk/)
@@ -11,32 +35,7 @@ Use this package when you build **agent workers** (not site backends). Pair with
 [![Documentation](https://readthedocs.org/projects/lime-agents-sdk/badge/?version=latest)](https://lime-agents-sdk.readthedocs.io/)
 [![MCP compatible](https://img.shields.io/badge/MCP-compatible-00C853)](https://modelcontextprotocol.io/)
 
-**📖 Python API (Read the Docs):** [lime-agents-sdk.readthedocs.io](https://lime-agents-sdk.readthedocs.io/)  
-**📖 Platform HTTP docs:** [lime.pics/docs#guide-agentSdk](https://lime.pics/docs#guide-agentSdk)  
-**📦 This SDK:** [github.com/Mawyxx/lime-agents-sdk](https://github.com/Mawyxx/lime-agents-sdk)  
-**🌐 Platform:** [https://lime.pics](https://lime.pics)
-
----
-
-## Why lime-agents-sdk?
-
-| Problem | SDK solution |
-|---------|----------------|
-| Manual PoW + approve HTTP | `await agent.login(request_id)` — challenge fetch, SHA-256 PoW, approve, retries |
-| Two auth lanes (LIME vs MCP) | `X-Agent-Token` for LIME APIs; short-lived **MCP JWT** for external MCP servers |
-| MCP OAuth boilerplate | `list_tools` / `call_tool` take required `target`; auto-issue + **per-domain** MCP JWT cache; optional `get_mcp_access_token(target)` for the raw token |
-| Fragile agent credentials | Env-based `LIME_AGENT_TOKEN` (Stripe-style), typed errors, `py.typed` |
-
-### Two JWT flows (do not mix them)
-
-LIME uses **two different JWT artifacts**. This SDK covers the **agent worker** side only.
-
-| Flow | Who gets the JWT | Audience / use | This SDK |
-|------|------------------|----------------|---------|
-| **Site login passport** | **Site backend** (via SSE) | `aud=lime-site-login` — cryptographic passport for the logged-in session | Agent calls `login()` only; site verifies JWT with [`lime-sites-sdk`](https://github.com/Mawyxx/lime-site-sdk) + Core JWKS |
-| **MCP access token** | **Agent worker** (cached in SDK; not sent to site) | `aud=mcp` — Bearer token for **external** MCP resource servers | MCP facade methods require `target`; auto-issue + per-domain cache; optional `get_mcp_access_token(target)` for the raw JWT |
-
-The MCP JWT is signed with LIME Core keys (JWKS at `GET /api/v1/core/.well-known/jwks.json`). Default TTL is **300 seconds (5 minutes)**. The SDK caches it in your worker and performs **lazy refresh** on the next MCP call when the token is within **~30 seconds of expiry** (`mcp_token_refresh_skew`, default `30`) — there is **no background refresh task**. You send the JWT to **remote** MCP servers as `Authorization: Bearer` — not to the site backend. **MCP JWTs are rejected on LIME HTTP APIs** — only opaque `X-Agent-Token` works there.
+**Docs:** [Read the Docs](https://lime-agents-sdk.readthedocs.io/) · [lime.pics/docs](https://lime.pics/docs#guide-agentSdk) · [Platform](https://lime.pics)
 
 ---
 
@@ -44,23 +43,80 @@ The MCP JWT is signed with LIME Core keys (JWKS at `GET /api/v1/core/.well-known
 
 ```bash
 pip install lime-agents-sdk
+export LIME_AGENT_TOKEN=at_...   # from https://lime.pics — agent portal
 ```
 
-Latest from GitHub:
-
-```bash
-pip install git+https://github.com/Mawyxx/lime-agents-sdk.git
-```
-
-**Requirements:** Python 3.10+ · runtime deps: `httpx`, `mcp`
+**Requirements:** Python 3.10+ · `httpx` · `mcp`  
+**Config:** one secret — `LIME_AGENT_TOKEN` (or `agent_token=`). Zero **OAuth** boilerplate; not zero credentials.
 
 ---
 
-## Quick start
+## Quick start (canonical) — Agent → MCP
 
-### Scenario A — Site login (headless agent authentication)
+**This is the primary path.** Your worker already has a LIME agent token; an external MCP server trusts LIME-issued Bearer JWTs (`aud=mcp`).
 
-**Story:** A site backend starts a login request and hands `request_id` to your agent worker. The worker proves identity with PoW + approve. The **site** receives the signed **agent passport JWT** over SSE (handled by `lime-sites-sdk`). Your worker only runs the approve step.
+```python
+import asyncio
+import os
+
+from lime_agents import LimeAgent, CallToolResult, Tool
+
+MCP_URL = os.environ.get("MCP_SERVER_URL", "https://mcp.example.com/mcp")
+
+
+async def main() -> None:
+    async with LimeAgent(agent_token=os.environ["LIME_AGENT_TOKEN"]) as agent:
+        tools: list[Tool] = await agent.list_tools(MCP_URL)
+        print([t.name for t in tools])
+
+        if not tools:
+            return
+
+        result: CallToolResult = await agent.call_tool(
+            MCP_URL,
+            tools[0].name,
+            {"text": "hello from LIME agent"},
+        )
+        if result.isError:
+            print("tool error:", result.content)
+        else:
+            print(result.content)
+
+
+asyncio.run(main())
+```
+
+Copy-paste examples: [`examples/mcp-client/`](examples/mcp-client/).
+
+**On the MCP server:** verify Bearer with [`lime-mcp-server-sdk`](https://github.com/Mawyxx/lime-mcp-server-sdk) + Core JWKS — not with `lime-agents-sdk`.
+
+> **Try it live:** point `MCP_SERVER_URL` at any MCP RS that accepts LIME passports. A hosted LIME playground MCP is on the roadmap — until then use your own RS or the platform guides at [lime.pics/docs](https://lime.pics/docs).
+
+---
+
+## Mental model — what do I need?
+
+```text
+LimeAgent
+├── Core          LimeAgent() / aclose()
+├── Profile       get_profile()
+├── MCP (primary) list_tools · call_tool · resources · prompts
+├── Advanced      get_mcp_access_token(target) · mcp_session()
+└── Site login    login(request_id)   ← separate job, optional
+```
+
+| Credential | Header | Used for |
+|------------|--------|----------|
+| Opaque **Agent Token** | `X-Agent-Token` | Talk to LIME (`login`, profile, issue MCP JWT) |
+| Short **MCP passport JWT** | `Authorization: Bearer` | Talk to **external** MCP resource servers |
+
+Never send `X-Agent-Token` to an MCP server. Never send the MCP JWT to LIME HTTP APIs.
+
+---
+
+## Second scenario — Site login (headless)
+
+Use this when a **site backend** creates a login request and your worker only needs to approve it. The **site** receives the passport over SSE ([`lime-sites-sdk`](https://github.com/Mawyxx/lime-site-sdk)) — your worker does not.
 
 ```python
 import asyncio
@@ -68,20 +124,16 @@ import os
 
 from lime_agents import LimeAgent, ApiError, PowTimeoutError
 
-# LIME_AGENT_TOKEN=at_...  (from the LIME owner portal — server-side secret only)
-REQUEST_ID = "lr_abc123"  # from your site backend / job queue
+REQUEST_ID = "lr_abc123"  # from your site / job queue
 
 
 async def main() -> None:
-    # One LimeAgent per worker process (reuse across jobs)
-    agent = LimeAgent(agent_token=os.environ["LIME_AGENT_TOKEN"])
-
+    agent = LimeAgent(agent_token=os.environ["LIME_AGENT_TOKEN"])  # one per worker process
     try:
         result = await agent.login(REQUEST_ID)
-        print(result.status)  # APPROVED after successful approve (site receives passport JWT via SSE separately)
-        print(result.approved_agent_id)  # agent UUID from approve response (may be None on edge cases)
+        print(result.status, result.approved_agent_id)
     except PowTimeoutError:
-        print("PoW not solved in time — increase pow_timeout or retry")
+        print("PoW timeout — increase pow_timeout or retry")
     except ApiError as exc:
         print(f"[{exc.code}] {exc.message}")
     finally:
@@ -91,197 +143,92 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-**What `login()` does internally:**
-
-1. `GET /api/v1/auth/requests/{request_id}` — read PoW challenge (no auth)
-2. Solve PoW in a thread pool (`asyncio.to_thread`)
-3. `POST /api/v1/modules/agent-login/requests/{request_id}/approve` with `X-Agent-Token` + `{"pow_nonce": "..."}`
-
-**Site side (separate package):** [`lime-sites-sdk`](https://github.com/Mawyxx/lime-site-sdk) → `create_login_request()` → SSE `on_login` → `verify_passport()` against Core JWKS.
+Example: [`examples/site-login/`](examples/site-login/).
 
 ---
 
-### Scenario B — MCP tools (MCP OAuth + streamable HTTP client)
+## API surface (summary)
 
-**Story:** Your agent calls tools on an **external** MCP resource server. LIME issues a **short-lived MCP JWT** (~5 min) from your `X-Agent-Token`. Pass a `target` (URL or hostname). The SDK extracts the domain, posts JSON `{"domain"}` to LIME OAuth, caches JWTs per domain, pools sessions per URL, and on MCP 401 invalidates that domain only then retries once.
+| Group | Methods |
+|-------|---------|
+| **Setup** | `LimeAgent(...)`, `aclose()` |
+| **MCP** | `list_tools`, `call_tool`, `list_resources`, `read_resource`, `list_prompts`, `get_prompt`, … |
+| **Auth / profile** | `login`, `get_profile` |
+| **Advanced** | `get_mcp_access_token(target)`, `mcp_session(url)` |
 
-```python
-import asyncio
-import os
+Full reference: [Read the Docs — API](https://lime-agents-sdk.readthedocs.io/en/latest/api/).
 
-from lime_agents import LimeAgent, CallToolResult, Tool
+**Errors:** `LimeError` → `AuthenticationError`, `PowTimeoutError`, `RateLimitError`, `ApiError`, `McpAuthenticationError`, `OAuthCapabilityError`.
 
-MCP_ENDPOINT = "https://mcp.example.com/mcp"  # full streamable HTTP path, not just the host
-
-
-async def main() -> None:
-    async with LimeAgent(agent_token=os.environ["LIME_AGENT_TOKEN"]) as agent:
-        # MCP JWT (~300s TTL) is fetched automatically on first list_tools / call_tool
-        tools: list[Tool] = await agent.list_tools(MCP_ENDPOINT)  # target=
-        print([t.name for t in tools])
-
-        result: CallToolResult = await agent.call_tool(
-            MCP_ENDPOINT,
-            tools[0].name,
-            {"text": "hello from LIME agent"},
-        )
-        if result.isError:
-            print("tool error:", result.content)
-        else:
-            print(result.content)
-
-        # Same agent, another MCP server — sessions cached per URL
-        # await agent.call_tool("https://other-mcp.example.com/mcp", "get_weather", {"city": "Berlin"})
-
-
-asyncio.run(main())
-```
-
-**Credential lanes (never swap headers):**
-
-| Lane | Header | Used for |
-|------|--------|----------|
-| LIME platform | `X-Agent-Token` | `login()`, `get_profile()`, `POST .../oauth/token` |
-| External MCP RS | `Authorization: Bearer <mcp_jwt>` | `list_tools`, `call_tool`, resources, prompts |
-
-OAuth issuance: `POST /api/v1/modules/oauth/token` — **header only, empty body** ([MCP OAuth ADR](https://github.com/Mawyxx/Lime/blob/main/docsN/adr/0081-oauth-module-for-mcp.md)). Resource servers verify the JWT via Core JWKS — use [`lime-mcp-server-sdk`](https://github.com/Mawyxx/lime-mcp-server-sdk) on the server side.
-
----
-
-## Features
-
-- **One-call site login** — `await agent.login(request_id)` wraps PoW fetch, solve, and approve with `X-Agent-Token`
-- **MCP OAuth built-in** — issue, cache, and **lazy-refresh** 5-minute MCP JWTs on the next `list_tools` / `call_tool` when near expiry; no manual `/oauth/token` in app code
-- **Typed MCP client** — `list_tools`, `call_tool`, `read_resource`, `get_prompt`, … with `mcp.types` models re-exported from `lime_agents`
-- **Automatic Proof-of-Work** — SHA-256 solver with configurable `pow_timeout` and transient retry policy
-- **Production-ready LIME HTTP** — httpx async client, exponential backoff on 408/429/5xx for **platform** calls (`login`, profile, OAuth issuance); MCP calls retry on 401 after token refresh
-- **Strict typing** — `ApprovalResult`, `AgentProfile`, `McpAccessToken`, `py.typed`, mypy-clean public API
+**Env:** `LIME_AGENT_TOKEN` (required unless constructor), `LIME_API_BASE` (optional, default `https://lime.pics/api/v1`).
 
 ---
 
 ## Comparison with Official MCP SDK
 
-The official [`mcp`](https://github.com/modelcontextprotocol/python-sdk) package (PyPI: `mcp`) is the **protocol SDK**: transports, `ClientSession`, JSON-RPC types, server tooling (`FastMCP`), and generic OAuth helpers. **`lime-agents-sdk` depends on it** and wraps the client path for **LIME agent workers** — site login, LIME OAuth token issuance, session pooling, and typed facade methods.
-
-Choose **`mcp` alone** when you need full control over transports, non-LIME OAuth (authorization code + PKCE, dynamic client registration), MCP servers, or stdio/SSE transports. Choose **`lime-agents-sdk`** when your worker already has a LIME `X-Agent-Token` and you want MCP tool calls with minimal boilerplate.
+`lime-agents-sdk` **depends on** [`mcp`](https://github.com/modelcontextprotocol/python-sdk) and composes it for the LIME machine-token model. It does **not** replace `mcp` for server authors or generic OAuth.
 
 ### Side-by-side
 
-| Feature / Aspect | Official MCP SDK (`mcp`) | LIME SDK (`lime-agents-sdk`) | Benefit of LIME |
-|------------------|--------------------------|------------------------------|-----------------|
-| **Scope** | Client + server protocol stack, multiple transports | LIME **agent worker** client (login, profile, MCP tools) | One package for LIME identity + MCP — no glue code |
-| **Typical MCP tool call** | `streamable_http_client` → `ClientSession` → `initialize()` → `list_tools()` / `call_tool()` (~15 lines) | `await agent.list_tools(url)` / `await agent.call_tool(url, name, args)` (~3 lines) | **~70% less code**; returns `list[Tool]` (no `.tools` nesting) |
-| **LIME machine OAuth** | Not built-in; you fetch JWT and set `Authorization` on `httpx.AsyncClient` | `POST /modules/oauth/token` (empty body); JWT auto-attached on MCP calls | Tokens fetched and injected **automatically** |
-| **Generic OAuth** | `OAuthClientProvider` (PKCE), `ClientCredentialsOAuthProvider`, `TokenStorage` | LIME token model only — not a general OAuth library | Use `mcp` for non-LIME RFC flows (by design) |
-| **Token caching & refresh** | You implement `TokenStorage`; refresh via `refresh_token` when available; no background timer | In-memory cache; **lazy refresh** within `mcp_token_refresh_skew` (30s); **single-flight** lock; no background timer | **Out of the box** — no storage layer; no races or thundering herd |
-| **Session pooling & concurrency** | You manage `ClientSession` per URL and concurrency yourself | `McpSessionPool` per URL; `serialize_mcp_per_url=True` by default | **One session per URL**; safe same-URL default; parallel across different URLs |
-| **401 from MCP RS** | Your error handling | Invalidate JWT, close transports, **one retry** → `McpAuthenticationError` | **Automatic recovery** without boilerplate |
-| **HTTP retries (408/429/5xx)** | Transport reconnection (`MAX_RECONNECTION_ATTEMPTS=2`); OAuth refresh on invalid token | Exponential backoff on **LIME platform** HTTP; MCP: 401 + broken-session retry | Platform resilience + MCP auth self-heal |
-| **Site login (PoW + approve)** | Not included | `await agent.login(request_id)` | Headless site login in one call |
+| Feature | Official `mcp` | `lime-agents-sdk` |
+|---------|----------------|-------------------|
+| Typical MCP tool call | `streamable_http_client` → `ClientSession` → `initialize` → call (~15 lines) | `list_tools` / `call_tool` (~3 lines) |
+| LIME MCP JWT | You fetch + attach Bearer | Auto-issue, cache, lazy refresh, inject |
+| Token storage / refresh | You implement | In-memory + single-flight lazy refresh |
+| Session pooling | You manage | Per-URL pool; safe same-URL default |
+| 401 from MCP RS | Your handling | Invalidate + one retry |
+| Site login (PoW) | Not included | `await agent.login(request_id)` |
 
-### Minimal example — list tools + call
+### Diff you can see
 
-**Official `mcp` (streamable HTTP + Bearer you obtained yourself):**
+**Without LIME (official client + your token plumbing):**
 
 ```python
-import asyncio
-
-import httpx
-from mcp import ClientSession
-from mcp.client.streamable_http import streamable_http_client
-
-MCP_URL = "https://mcp.example.com/mcp"
-ACCESS_TOKEN = "..."  # you fetch and refresh this
-
-
-async def main() -> None:
-    async with httpx.AsyncClient(
-        headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
-        timeout=30.0,
-    ) as http:
-        async with streamable_http_client(MCP_URL, http_client=http) as (read, write, _):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                tools = (await session.list_tools()).tools
-                if tools:
-                    await session.call_tool(tools[0].name, {"text": "hi"})
-
-
-asyncio.run(main())
+async with httpx.AsyncClient(headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}) as http:
+    async with streamable_http_client(MCP_URL, http_client=http) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            tools = (await session.list_tools()).tools
+            if tools:
+                await session.call_tool(tools[0].name, {"text": "hi"})
 ```
 
-**`lime-agents-sdk` (LIME OAuth + pool + facade):**
+**With LIME:**
 
 ```python
-import asyncio
-
-from lime_agents import LimeAgent
-
-MCP_URL = "https://mcp.example.com/mcp"
-
-
-async def main() -> None:
-    async with LimeAgent() as agent:  # LIME_AGENT_TOKEN from env
-        tools = await agent.list_tools(MCP_URL)
-        if tools:
-            await agent.call_tool(MCP_URL, tools[0].name, {"text": "hi"})
-
-
-asyncio.run(main())
+async with LimeAgent() as agent:
+    tools = await agent.list_tools(MCP_URL)
+    if tools:
+        await agent.call_tool(MCP_URL, tools[0].name, {"text": "hi"})
 ```
 
-### When to use which SDK
-
-**Use `mcp` directly** if you are:
-
-- building an **MCP server** (`FastMCP`, stdio/SSE/streamable HTTP transports),
-- implementing **custom OAuth** (authorization code + PKCE, dynamic client registration),
-- integrating with an **OAuth provider other than LIME**.
-
-**Use `lime-agents-sdk`** if you already have a **LIME agent** with `X-Agent-Token` and you want:
-
-- **~5× less code** for MCP tool calls (see examples above),
-- **automatic OAuth lifecycle** — issue, cache, lazy refresh, and Bearer injection with no `TokenStorage`,
-- **session pooling** and **safe same-URL concurrency** without writing lock/reconnect logic,
-- **401 recovery** and LIME platform retries built in,
-- optional **headless site login** (`login()`) in the same client.
-
-`lime-agents-sdk` does **not** replace `mcp` for server authors or non-LIME OAuth — it **composes** `mcp` for the LIME machine-token model.
-
-Details: [MCP OAuth & pool (source)](https://github.com/Mawyxx/lime-agents-sdk/blob/main/docs/mcp-oauth.md) · [Read the Docs](https://lime-agents-sdk.readthedocs.io/en/latest/mcp-oauth/)
+**Use `mcp` alone** for MCP servers, non-LIME OAuth (PKCE, DCR), or full transport control.  
+**Use `lime-agents-sdk`** when you already have a LIME `X-Agent-Token` and want MCP calls without OAuth plumbing.
 
 ---
 
-## API reference (summary)
+## Two JWT flows (do not mix)
 
-### `LimeAgent`
+Important once you go past Quick start — details live here, not above the install.
 
-| Method | Description |
-|--------|-------------|
-| `await agent.login(request_id)` | Site login approve flow → `ApprovalResult` |
-| `await agent.get_profile()` | `GET /core/agents/me/profile` → `AgentProfile` |
-| `await agent.get_mcp_access_token()` | Optional: expose cached MCP OAuth JWT (~300s TTL); not required before MCP calls |
-| `await agent.list_tools(server_url)` | MCP tools (typed `Tool`) |
-| `await agent.call_tool(server_url, name, args)` | MCP tool invocation → `CallToolResult` |
-| `await agent.list_resources(...)` / `read_resource(...)` / `list_prompts(...)` / `get_prompt(...)` | Full MCP facade |
-| `async with agent.mcp_session(url)` | Low-level `mcp.ClientSession` with per-URL lock |
+| Flow | Who holds the JWT | Audience | This SDK |
+|------|-------------------|----------|----------|
+| **Site login passport** | **Site backend** (SSE) | `aud=lime-site-login` | Agent only calls `login()`; site verifies with `lime-sites-sdk` + JWKS |
+| **MCP access token** | **Agent worker** (SDK cache) | `aud=mcp` | Auto on `list_tools` / `call_tool`; optional `get_mcp_access_token(target)` |
 
-**Constructor highlights:** `agent_token` / `LIME_AGENT_TOKEN`, `base_url` / `LIME_API_BASE` (default `https://lime.pics/api/v1`), `timeout`, `max_retries`, `mcp_token_refresh_skew` (default `30`, lazy refresh window), `serialize_mcp_per_url` (default `True`).
+MCP JWTs: Core-signed, default TTL **~300s**, lazy refresh within `mcp_token_refresh_skew` (30s). **Rejected on LIME HTTP APIs** — only opaque `X-Agent-Token` works there.
 
-**Context manager:** `async with LimeAgent() as agent:` calls `aclose()` on exit. For long-running workers, create **one** instance at startup and reuse it.
+More: [MCP OAuth & pool](https://lime-agents-sdk.readthedocs.io/en/latest/mcp-oauth/).
 
-### Environment variables
+---
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `LIME_AGENT_TOKEN` | Yes* | Agent secret (`at_...`) from the LIME portal |
-| `LIME_API_BASE` | No | API root, e.g. `https://lime.pics/api/v1` |
+## Features
 
-\*Unless `agent_token=` is passed to the constructor.
-
-### Errors
-
-All inherit from `LimeError`: `AuthenticationError`, `PowTimeoutError`, `RateLimitError`, `ApiError`, `McpAuthenticationError`, `OAuthCapabilityError`.
+- **MCP OAuth built-in** — issue, cache, lazy-refresh 5-minute JWTs; no manual `/oauth/token` in app code
+- **Typed MCP facade** — `list_tools`, `call_tool`, resources, prompts (`mcp.types` re-exported)
+- **One-call site login** — PoW fetch, solve, approve
+- **Production HTTP** — retries on LIME platform 408/429/5xx; MCP 401 self-heal
+- **Strict typing** — `py.typed`, mypy-clean public API
 
 ---
 
@@ -289,14 +236,22 @@ All inherit from `LimeError`: `AuthenticationError`, `PowTimeoutError`, `RateLim
 
 | Package | Role |
 |---------|------|
-| [`lime-sites-sdk`](https://github.com/Mawyxx/lime-site-sdk) | Site backend: create login, SSE events, **verify site passport JWT** |
-| [`lime-mcp-server-sdk`](https://github.com/Mawyxx/lime-mcp-server-sdk) | MCP resource server: **verify MCP Bearer JWT** via Core JWKS |
+| [`lime-sites-sdk`](https://github.com/Mawyxx/lime-site-sdk) | Site backend: create login, SSE, verify site passport |
+| [`lime-mcp-server-sdk`](https://github.com/Mawyxx/lime-mcp-server-sdk) | MCP RS: verify Bearer JWT via Core JWKS |
+
+---
+
+## Examples
+
+| Path | Purpose |
+|------|---------|
+| [`examples/mcp-client/`](examples/mcp-client/) | Canonical Agent → MCP |
+| [`examples/site-login/`](examples/site-login/) | Headless approve |
+| [`examples/minimal-agent/`](examples/minimal-agent/) | Smallest MCP snippet |
 
 ---
 
 ## Contributing
-
-Issues and pull requests: [github.com/Mawyxx/lime-agents-sdk](https://github.com/Mawyxx/lime-agents-sdk)
 
 ```bash
 git clone https://github.com/Mawyxx/lime-agents-sdk.git
@@ -307,7 +262,7 @@ mypy src/lime_agents
 pytest --cov=lime_agents --cov-fail-under=100
 ```
 
-CI runs on Python 3.10–3.13 with **100% line coverage** on `src/lime_agents`.
+CI: Python 3.10–3.13, **100% line coverage** on `src/lime_agents`.
 
 ---
 

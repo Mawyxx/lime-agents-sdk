@@ -1,7 +1,12 @@
 # lime-agents-sdk
 
-Python library for **your AI agent process** — the program that runs on your server and
-acts on behalf of a registered LIME agent.
+Give your AI agent a **verifiable LIME identity** and call **MCP tools** without managing OAuth tokens yourself.
+
+```python
+async with LimeAgent() as agent:
+    tools = await agent.list_tools("https://your-mcp-server.example/mcp")
+    result = await agent.call_tool("https://your-mcp-server.example/mcp", tools[0].name, {})
+```
 
 [![PyPI](https://img.shields.io/pypi/v/lime-agents-sdk)](https://pypi.org/project/lime-agents-sdk/)
 [![Documentation](https://readthedocs.org/projects/lime-agents-sdk/badge/?version=latest)](https://lime-agents-sdk.readthedocs.io/)
@@ -10,20 +15,60 @@ acts on behalf of a registered LIME agent.
 ## Who is this for?
 
 You registered an **agent** in the [LIME portal](https://lime.pics) and got a secret
-`agent_token`. This SDK is the Python client your agent worker uses to talk to LIME.
+`agent_token`. This SDK is the Python client your **agent worker** uses.
 
 You do **not** need this SDK on the website backend — that side uses
 [lime-sites-sdk](https://lime-sites-sdk.readthedocs.io/).
 
-## Two separate jobs (pick yours)
+## Mental model
 
-This SDK can do **two different things**. They do not depend on each other — use one, the
-other, or both.
+```text
+LimeAgent
+├── Core          construct / aclose
+├── MCP           list_tools · call_tool · resources · prompts   ← primary
+├── Profile       get_profile
+├── Advanced      get_mcp_access_token(target) · mcp_session
+└── Site login    login(request_id)                              ← optional
+```
 
-### Scenario 1 — Approve user login on a website {: #scenario-1 }
+| Credential | Header | Used for |
+|------------|--------|----------|
+| Agent Token | `X-Agent-Token` | LIME APIs only |
+| MCP JWT | `Authorization: Bearer` | External MCP RS only |
+
+## Two jobs (pick yours)
+
+### Primary — Call tools on an external MCP server {: #scenario-2 }
 
 !!! note "When to use"
-    A user wants to log into someone else's site through your agent.
+    Your agent must call tools on another server that trusts LIME-issued tokens.
+
+```mermaid
+sequenceDiagram
+    participant Agent as Your agent worker<br/>(this SDK)
+    participant LIME as LIME OAuth
+    participant MCP as External MCP server
+
+    Agent->>LIME: get token (automatic)
+    Agent->>MCP: list_tools / call_tool
+    Note over Agent: No login(), no request_id
+```
+
+```python
+async with LimeAgent() as agent:
+    tools = await agent.list_tools("https://your-mcp-server.example/mcp")
+    result = await agent.call_tool("https://your-mcp-server.example/mcp", tools[0].name, {})
+```
+
+Token is fetched automatically (**lazy refresh** ~30s before expiry). Do **not** call
+`get_mcp_access_token(target)` unless you write custom HTTP.
+
+→ [Quick Start — MCP](quickstart.md#scenario-mcp) · [MCP OAuth & pool](mcp-oauth.md)
+
+### Optional — Approve site login {: #scenario-1 }
+
+!!! note "When to use"
+    A user wants to log into a site through your agent.
 
 ```mermaid
 sequenceDiagram
@@ -38,60 +83,23 @@ sequenceDiagram
     Note over Agent: You do not receive the passport
 ```
 
-**What you call:**
-
 ```python
 async with LimeAgent() as agent:
     result = await agent.login(request_id)
     print(result.status)  # APPROVED
 ```
 
-**You need:** `LIME_AGENT_TOKEN` in environment.
-
 → [Quick Start — Site login](quickstart.md#scenario-1)
-
-### Scenario 2 — Call tools on an external MCP server {: #scenario-2 }
-
-!!! note "When to use"
-    Your agent must call tools on another server (calculator, DB, API) that trusts
-    LIME-issued tokens.
-
-```mermaid
-sequenceDiagram
-    participant Agent as Your agent worker<br/>(this SDK)
-    participant LIME as LIME OAuth
-    participant MCP as External MCP server
-
-    Agent->>LIME: get token (automatic)
-    Agent->>MCP: list_tools / call_tool
-    Note over Agent: No login(), no request_id
-```
-
-**What you call:**
-
-```python
-async with LimeAgent() as agent:
-    tools = await agent.list_tools("https://your-mcp-server.example/mcp")
-    result = await agent.call_tool("https://your-mcp-server.example/mcp", tools[0].name, {})
-```
-
-**You need:** same `LIME_AGENT_TOKEN`. Token is fetched automatically on each MCP call
-(**lazy refresh** ~30s before expiry — no background worker). Do **not** call
-`get_mcp_access_token(target)` unless you write custom HTTP.
-
-→ [Quick Start — MCP tools](quickstart.md#scenario-2) · [MCP OAuth & pool](mcp-oauth.md)
 
 ## Class structure: `LimeAgent`
 
-| Group | Method | Signature (short) | Returns |
-|-------|--------|-------------------|---------|
-| **Setup** | `LimeAgent(...)` | `LimeAgent(agent_token=None, ...)` | client |
-| **Setup** | `aclose()` | `await agent.aclose()` | — |
-| **Site login** | `login()` | `await agent.login(request_id: str)` | `ApprovalResult` |
-| **Profile** | `get_profile()` | `await agent.get_profile()` | `AgentProfile` |
-| **MCP** | `list_tools()` | `await agent.list_tools(target: str)` | `list[Tool]` |
-| **MCP** | `call_tool()` | `await agent.call_tool(url, name, args)` | `CallToolResult` |
-| **MCP** | `get_mcp_access_token(target)` | `await agent.get_mcp_access_token("https://mcp.example.com")` | `McpAccessToken` |
+| Group | Method | Returns |
+|-------|--------|---------|
+| **Setup** | `LimeAgent(...)`, `aclose()` | client |
+| **MCP** | `list_tools`, `call_tool`, … | typed MCP models |
+| **Profile** | `get_profile()` | `AgentProfile` |
+| **Site login** | `login(request_id)` | `ApprovalResult` |
+| **Advanced** | `get_mcp_access_token(target)`, `mcp_session` | raw JWT / session |
 
 Full signatures: [API Reference](api.md).
 
@@ -99,9 +107,9 @@ Full signatures: [API Reference](api.md).
 
 | Item | Where to get it |
 |------|-----------------|
-| `LIME_AGENT_TOKEN` | LIME portal → your agent → copy token once |
-| `request_id` (scenario 1) | Site backend creates it; passes to your worker |
-| MCP server URL (scenario 2) | URL of the external MCP HTTP endpoint |
+| `LIME_AGENT_TOKEN` | LIME portal → your agent → copy once |
+| MCP server URL (primary) | URL of the external MCP HTTP endpoint |
+| `request_id` (site login only) | Site backend creates it; passes to your worker |
 
 Optional: `LIME_API_BASE` — default `https://lime.pics/api/v1`.
 
@@ -109,6 +117,7 @@ Optional: `LIME_API_BASE` — default `https://lime.pics/api/v1`.
 
 ```bash
 pip install lime-agents-sdk
+export LIME_AGENT_TOKEN=at_...
 ```
 
 Details: [Installation](installation.md)
@@ -125,7 +134,7 @@ Platform HTTP reference: [lime.pics/docs](https://lime.pics/docs#guide-agentSdk)
 
 ## Next pages
 
-1. [Quick Start](quickstart.md) — copy-paste for both scenarios
+1. [Quick Start](quickstart.md) — MCP first, then site login
 2. [MCP OAuth & pool](mcp-oauth.md) — lazy refresh, multi-server, retries
-3. [API Reference](api.md) — every method, one section each
+3. [API Reference](api.md) — every method
 4. [Examples](examples.md) — errors, multiple MCP servers

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Docs / DX
+
+- README leads with Agent → MCP task + 10-second code sample; site login is secondary.
+- Single measurable claim: typical MCP call **~15 lines → ~3 lines** (removed conflicting ~70% / ~5×).
+- PyPI description: **zero OAuth boilerplate** (not zero-config).
+- Added `examples/minimal-agent`, `examples/mcp-client`, `examples/site-login`.
+- Quick Start / RTD index: MCP-first mental model.
+
 ## 1.0.0 — Zero-Touch MCP Auth
 
 Breaking SemVer major. No backward compatibility with 0.5.x empty-body tokens.

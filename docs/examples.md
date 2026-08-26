@@ -1,6 +1,50 @@
 # Examples
 
-## Scenario 1 — Site login worker
+## MCP client (canonical)
+
+```python
+import asyncio
+import os
+
+from lime_agents import LimeAgent
+
+async def main() -> None:
+    url = os.environ["MCP_SERVER_URL"]
+    async with LimeAgent(agent_token=os.environ["LIME_AGENT_TOKEN"]) as agent:
+        tools = await agent.list_tools(url)
+        print([t.name for t in tools])
+        if tools:
+            result = await agent.call_tool(url, tools[0].name, {"text": "hi"})
+            print(result.content)
+
+asyncio.run(main())
+```
+
+Repo copy-paste: [`examples/mcp-client/`](https://github.com/Mawyxx/lime-agents-sdk/tree/main/examples/mcp-client).
+
+## Multiple MCP servers {: #scenario-2-multiple-mcp-servers }
+
+One `LimeAgent` pools sessions per server URL. Calls to **different** URLs can run in
+parallel; the same OAuth JWT is shared (lazy refresh on the next MCP call).
+
+```python
+import asyncio
+from lime_agents import LimeAgent
+
+async def main() -> None:
+    async with LimeAgent() as agent:
+        tools_a, tools_b = await asyncio.gather(
+            agent.list_tools("https://mcp-a.example/mcp"),
+            agent.list_tools("https://mcp-b.example/mcp"),
+        )
+        print(len(tools_a), len(tools_b))
+
+asyncio.run(main())
+```
+
+See [MCP OAuth & pool](mcp-oauth.md) for token lifecycle and retry behavior.
+
+## Site login worker
 
 ```python
 import asyncio
@@ -22,28 +66,7 @@ asyncio.run(approve_login("lr_abc123"))
 ```
 
 Pair with [lime-sites-sdk](https://lime-sites-sdk.readthedocs.io/) on the site side.
-
-## Scenario 2 — Multiple MCP servers {: #scenario-2-multiple-mcp-servers }
-
-One `LimeAgent` pools sessions per server URL. Calls to **different** URLs can run in
-parallel; the same OAuth JWT is shared (lazy refresh on the next MCP call).
-
-```python
-import asyncio
-from lime_agents import LimeAgent
-
-async def main() -> None:
-    async with LimeAgent() as agent:
-        tools_a, tools_b = await asyncio.gather(
-            agent.list_tools("https://mcp-a.example/mcp"),
-            agent.list_tools("https://mcp-b.example/mcp"),
-        )
-        print(len(tools_a), len(tools_b))
-
-asyncio.run(main())
-```
-
-See [MCP OAuth & pool](mcp-oauth.md) for token lifecycle and retry behavior.
+Repo: [`examples/site-login/`](https://github.com/Mawyxx/lime-agents-sdk/tree/main/examples/site-login).
 
 ## Error handling
 
