@@ -4,7 +4,6 @@ Give your AI agent a **verifiable LIME identity** and call **MCP tools** without
 
 ```python
 import asyncio
-import os
 
 from lime_agents import LimeAgent
 
@@ -154,7 +153,7 @@ Example: [`examples/site-login/`](examples/site-login/).
 | **Setup** | `LimeAgent(...)`, `aclose()` |
 | **MCP** | `list_tools`, `call_tool`, `list_resources`, `read_resource`, `list_prompts`, `get_prompt`, … |
 | **Auth / profile** | `login`, `get_profile` |
-| **Advanced** | `get_mcp_access_token(target)`, `mcp_session(url)` |
+| **Advanced** | `get_mcp_access_token(target)`, `mcp_session(target)` |
 
 Full reference: [Read the Docs — API](https://lime-agents-sdk.readthedocs.io/en/latest/api/).
 
