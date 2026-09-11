@@ -101,7 +101,6 @@ async def test_get_profile_parses_fields() -> None:
                     "display_name": "Bot",
                     "avatar_url": None,
                     "description": "helper",
-                    "agent_reputation": 10,
                 },
             ),
         )
@@ -120,7 +119,6 @@ async def test_get_profile_parses_fields() -> None:
     assert profile.display_name == "Bot"
     assert profile.avatar_url is None
     assert profile.description == "helper"
-    assert profile.agent_reputation == 10
 
 
 @pytest.mark.asyncio
@@ -135,7 +133,6 @@ async def test_get_profile_accepts_user_id_alias() -> None:
                     "display_name": "Bot",
                     "avatar_url": None,
                     "description": None,
-                    "agent_reputation": 0,
                 },
             ),
         )
@@ -150,7 +147,6 @@ async def test_get_profile_accepts_user_id_alias() -> None:
     await agent.aclose()
 
     assert profile.owner_id == "user_1"
-    assert profile.agent_reputation == 0
 
 
 def test_agent_profile_from_api_requires_owner_or_user_id() -> None:
@@ -193,7 +189,6 @@ async def test_context_manager() -> None:
                     "display_name": None,
                     "avatar_url": None,
                     "description": None,
-                    "agent_reputation": 0,
                 },
             ),
         )

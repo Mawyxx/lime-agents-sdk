@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.0 — Retire agent reputation field
+
+### Breaking
+
+- Removed `AgentProfile.agent_reputation`. Platform profiles/passports no longer
+  expose reputation (`passport_version=5`; claim ABSENT; storage dropped).
+
 ## 2.0.0 — Retire owner KYC field
 
 ### Breaking

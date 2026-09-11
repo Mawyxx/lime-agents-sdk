@@ -68,7 +68,6 @@ class AgentProfile:
         display_name: Public display name, if set.
         avatar_url: Avatar URL, if set.
         description: Agent bio, if set.
-        agent_reputation: Reputation score, if exposed by API.
     """
 
     agent_id: str
@@ -76,7 +75,6 @@ class AgentProfile:
     display_name: str | None
     avatar_url: str | None
     description: str | None
-    agent_reputation: int | None
 
     @classmethod
     def from_api(cls, data: dict[str, Any]) -> AgentProfile:
@@ -90,5 +88,4 @@ class AgentProfile:
             display_name=data.get("display_name"),
             avatar_url=data.get("avatar_url"),
             description=data.get("description"),
-            agent_reputation=data.get("agent_reputation"),
         )
