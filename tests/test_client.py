@@ -156,6 +156,23 @@ async def test_retry_on_503_then_success(client_factory) -> None:
 
 
 @pytest.mark.asyncio
+async def test_retry_on_429_then_success(client_factory) -> None:
+    calls = {"n": 0}
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429, content=_envelope_err("RATE_LIMIT", "slow"))
+        return httpx.Response(200, content=_envelope_ok({"ok_field": 1}))
+
+    client = client_factory(httpx.MockTransport(handler))
+    data = await client.get("/core/agents/me/profile")
+    assert data == {"ok_field": 1}
+    assert calls["n"] == 2
+    await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_no_retry_on_400(client_factory) -> None:
     calls = {"n": 0}
 

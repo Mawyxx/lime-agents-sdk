@@ -24,7 +24,7 @@ from lime_agents._errors import (
 )
 from lime_agents._types import AgentProfile, ApprovalResult, McpAccessToken
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 __all__ = [
     "AgentProfile",

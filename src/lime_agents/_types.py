@@ -68,7 +68,6 @@ class AgentProfile:
         display_name: Public display name, if set.
         avatar_url: Avatar URL, if set.
         description: Agent bio, if set.
-        owner_kyc_level: Owner KYC level (wire ``user_kyc_level``), if known.
         agent_reputation: Reputation score, if exposed by API.
     """
 
@@ -77,24 +76,19 @@ class AgentProfile:
     display_name: str | None
     avatar_url: str | None
     description: str | None
-    owner_kyc_level: int | None
     agent_reputation: int | None
 
     @classmethod
     def from_api(cls, data: dict[str, Any]) -> AgentProfile:
-        """Parse profile JSON; accepts wire ``user_id`` / ``user_kyc_level`` aliases."""
+        """Parse profile JSON; accepts wire ``user_id`` alias for ``owner_id``."""
         owner_id = data.get("owner_id") or data.get("user_id")
         if owner_id is None:
             raise KeyError("owner_id")
-        owner_kyc_level = data.get("owner_kyc_level")
-        if owner_kyc_level is None:
-            owner_kyc_level = data.get("user_kyc_level")
         return cls(
             agent_id=str(data["agent_id"]),
             owner_id=str(owner_id),
             display_name=data.get("display_name"),
             avatar_url=data.get("avatar_url"),
             description=data.get("description"),
-            owner_kyc_level=owner_kyc_level,
             agent_reputation=data.get("agent_reputation"),
         )
