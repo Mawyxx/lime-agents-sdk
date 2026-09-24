@@ -11,9 +11,13 @@ import httpx
 TOKENS_FILE = Path(__file__).with_name(".tokens.env")
 DEFAULT_BASE_URL = "https://lime.pics/api/v1"
 
-# Bootstrapped on production for PoW verify (scripts/pow_prod_bootstrap_verify.py).
-_PROD_VERIFY_SITE_TOKEN = "pow-prod-verify-site-token-v1"
-_PROD_VERIFY_AGENT_TOKEN = "pow-prod-verify-agent-token-v1"
+PROD_VERIFY_SITE_TOKEN_ENV = "LIME_PROD_VERIFY_SITE_TOKEN"
+PROD_VERIFY_AGENT_TOKEN_ENV = "LIME_PROD_VERIFY_AGENT_TOKEN"
+
+
+class TokensUnavailable(RuntimeError):
+    """Live integration tokens are not configured; tests must skip."""
+
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:
@@ -140,10 +144,19 @@ async def ensure_tokens(base_url: str) -> tuple[str, str]:
         return tokens
 
     if "lime.pics" in base_url:
-        tokens = (_PROD_VERIFY_AGENT_TOKEN, _PROD_VERIFY_SITE_TOKEN)
-        save_tokens(*tokens)
-        return tokens
+        agent_env = os.getenv(PROD_VERIFY_AGENT_TOKEN_ENV, "").strip()
+        site_env = os.getenv(PROD_VERIFY_SITE_TOKEN_ENV, "").strip()
+        if agent_env and site_env:
+            tokens = (agent_env, site_env)
+            save_tokens(*tokens)
+            return tokens
+        raise TokensUnavailable(
+            "Prod integration fixtures require env "
+            f"{PROD_VERIFY_AGENT_TOKEN_ENV} and {PROD_VERIFY_SITE_TOKEN_ENV}; "
+            "live tests skip when they are unset",
+        )
 
-    raise RuntimeError(
-        "Set LIME_AGENT_TOKEN and LIME_SITE_TOKEN, or LIME_INTEGRATION_BOOTSTRAP_REGISTER=1",
+    raise TokensUnavailable(
+        "Set LIME_AGENT_TOKEN and LIME_SITE_TOKEN, "
+        "or LIME_INTEGRATION_BOOTSTRAP_REGISTER=1",
     )
