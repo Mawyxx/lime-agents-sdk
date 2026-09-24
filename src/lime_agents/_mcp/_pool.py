@@ -135,7 +135,11 @@ class McpSessionPool:
             try:
                 async with entry.lock:
                     await entry.transport.close()
+            except asyncio.CancelledError:
+                raise
             except BaseException as exc:
+                if McpSessionPool._contains_cancellation(exc):
+                    raise
                 if McpSessionPool._is_shutdown_noise(exc):
                     continue
                 logger.warning("MCP pool close error: %s", exc)
@@ -227,8 +231,18 @@ class McpSessionPool:
         return "brokenresource" in message or "cancel scope" in message
 
     @staticmethod
+    def _contains_cancellation(exc: BaseException) -> bool:
+        """True when ``exc`` is (or wraps) a cancellation — never swallow it."""
+        if isinstance(exc, asyncio.CancelledError):
+            return True
+        members = getattr(exc, "exceptions", None)
+        if isinstance(members, list | tuple):
+            return any(McpSessionPool._contains_cancellation(sub) for sub in members)
+        return False
+
+    @staticmethod
     def _is_shutdown_noise(exc: BaseException) -> bool:
-        if isinstance(exc, asyncio.CancelledError | BrokenResourceError):
+        if isinstance(exc, BrokenResourceError):
             return True
         group = McpSessionPool._exception_group_members(exc)
         if group is not None:

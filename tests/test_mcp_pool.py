@@ -354,9 +354,11 @@ def test_pool_is_auth_failure_helpers() -> None:
 
 
 def test_pool_is_shutdown_noise_helpers() -> None:
-    assert McpSessionPool._is_shutdown_noise(asyncio.CancelledError()) is True
     assert McpSessionPool._is_shutdown_noise(Exception("cancel scope mismatch")) is True
     assert McpSessionPool._is_shutdown_noise(Exception("boom")) is False
+    assert McpSessionPool._is_shutdown_noise(asyncio.CancelledError()) is False
+    assert McpSessionPool._contains_cancellation(asyncio.CancelledError()) is True
+    assert McpSessionPool._contains_cancellation(Exception("boom")) is False
 
 
 @pytest.mark.asyncio

@@ -27,7 +27,7 @@ from lime_agents._errors import (
 )
 from lime_agents._types import AgentProfile, ApprovalResult, McpAccessToken
 
-__version__ = "3.0.1"
+__version__ = "3.0.2"
 
 __all__ = [
     "AgentInactiveError",

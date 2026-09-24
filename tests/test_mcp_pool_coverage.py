@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -149,6 +150,48 @@ async def test_pool_session_context_manager_yields_session() -> None:
         async with pool.session("https://mcp.example.com") as mcp_session:
             assert mcp_session is session
         await pool.aclose()
+
+
+@pytest.mark.asyncio
+async def test_pool_aclose_reraises_cancellation() -> None:
+    pool = McpSessionPool(_make_issuer())
+    entry = await pool._get_entry("https://mcp.example.com", "mcp.example.com")  # noqa: SLF001
+
+    async def cancelled_close() -> None:
+        raise asyncio.CancelledError
+
+    entry.transport.close = cancelled_close  # type: ignore[method-assign]
+    pool._entries["https://mcp.example.com"] = entry  # noqa: SLF001
+    with pytest.raises(asyncio.CancelledError):
+        await pool.aclose()
+
+
+@pytest.mark.asyncio
+async def test_pool_aclose_reraises_grouped_cancellation() -> None:
+    pool = McpSessionPool(_make_issuer())
+    entry = await pool._get_entry("https://mcp.example.com", "mcp.example.com")  # noqa: SLF001
+
+    async def cancelled_close() -> None:
+        raise _duck_exception_group(
+            "shutdown",
+            [asyncio.CancelledError(), Exception("cancel scope mismatch")],
+        )
+
+    entry.transport.close = cancelled_close  # type: ignore[method-assign]
+    pool._entries["https://mcp.example.com"] = entry  # noqa: SLF001
+    with pytest.raises(Exception) as excinfo:
+        await pool.aclose()
+    assert isinstance(excinfo.value.exceptions[0], asyncio.CancelledError)  # type: ignore[attr-defined]
+
+
+def test_pool_is_shutdown_noise_ignores_cancelled_error() -> None:
+    assert McpSessionPool._is_shutdown_noise(asyncio.CancelledError()) is False
+
+
+def test_pool_is_shutdown_noise_broken_resource() -> None:
+    from anyio import BrokenResourceError
+
+    assert McpSessionPool._is_shutdown_noise(BrokenResourceError()) is True
 
 
 def test_pool_is_shutdown_noise_exception_group() -> None:

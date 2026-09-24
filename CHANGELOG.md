@@ -1,5 +1,27 @@
 # Changelog
 
+## 3.0.2
+
+### Security
+
+- MCP target hosts now reject reserved/special-use names (localhost, `*.local`,
+  `*.internal`, `*.intranet`, `*.corp`, `*.home`, `*.lan`, cloud metadata,
+  `kubernetes*`) and IP-encoding wildcard DNS services (`nip.io`, `sslip.io`,
+  `xip.io`, `traefik.me`, `localtest.me`, `lvh.me`) — parity with Core
+  `mcp_domain.py` — plus strict IP-literal obfuscation rejection (`127.1`,
+  `2130706433`, `0x7f000001`, `0177.0.0.1`). Validation is syntactic and
+  deterministic (no DNS resolution), documented in `lime_agents._domain`.
+- MCP streamable-HTTP transport no longer follows redirects
+  (`follow_redirects=False`) and re-validates every response URL against the
+  same host policy through a response hook, so a redirect toward a
+  reserved/special-use host fails closed instead of leaking the bearer token.
+
+### Fixed
+
+- `McpSessionPool.aclose()` re-raises `asyncio.CancelledError` — direct or
+  wrapped in an exception group — instead of classifying it as shutdown noise;
+  cancellation always propagates.
+
 ## 3.0.1
 
 ### Fixed

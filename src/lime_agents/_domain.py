@@ -1,9 +1,23 @@
 """MCP target domain extraction for Zero-Touch OAuth (ADR 0081).
 
-Keep the normalize algorithm in sync with ADR 0081 / monorepo
-``srcN/modules/oauth/domain/mcp_domain.py``, with one intentional delta:
-strip ``:port`` instead of rejecting, so Zero-Touch URLs with ports still
-mint JWTs (LIME token API rejects ports server-side).
+Host policy (parity with monorepo
+``srcN/modules/oauth/domain/mcp_domain.py``):
+
+- Only strict RFC 1123 DNS hostnames are accepted.
+- IP literals are rejected in every common encoding: ``ipaddress`` rejects
+  dotted-quad/v6, and a numeric/hex-only label scan rejects abbreviated and
+  obfuscated forms (``127.1``, ``2130706433``, ``0x7f000001``, ``0177.0.0.1``).
+- Reserved / special-use names are rejected: ``localhost``, ``*.local``,
+  ``*.internal``, ``*.intranet``, ``*.corp``, ``*.home``, ``*.lan``, cloud
+  metadata (``metadata.google.internal``), ``kubernetes*``, and wildcard DNS
+  services that encode an IP in the name (``nip.io`` / ``sslip.io`` / ``xip.io``
+  / ``traefik.me`` / ``localtest.me`` / ``lvh.me``).
+- Host validation is syntactic and deterministic: no DNS resolution happens in
+  the trust decision (no network, no TOCTOU).
+
+One intentional delta from Core: strip ``:port`` instead of rejecting, so
+Zero-Touch URLs with ports still mint JWTs (LIME token API rejects ports
+server-side).
 """
 
 from __future__ import annotations
@@ -17,6 +31,56 @@ _HOSTNAME_RE = re.compile(
     r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*"
     r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
 )
+
+_NUMERIC_LABEL_RE = re.compile(r"^(?:0[xX][0-9a-fA-F]+|[0-9]+)$")
+
+_RESERVED_EXACT = frozenset(
+    {
+        "localhost",
+        "metadata.google.internal",
+        "metadata",
+        "kubernetes",
+        "kubernetes.default",
+        "kubernetes.default.svc",
+        "nip.io",
+        "sslip.io",
+        "xip.io",
+        "traefik.me",
+        "localtest.me",
+        "lvh.me",
+    }
+)
+
+_RESERVED_SUFFIXES = (
+    ".localhost",
+    ".local",
+    ".internal",
+    ".intranet",
+    ".corp",
+    ".home",
+    ".lan",
+    ".nip.io",
+    ".sslip.io",
+    ".xip.io",
+    ".traefik.me",
+    ".localtest.me",
+    ".lvh.me",
+)
+
+
+def _is_reserved_hostname(host: str) -> bool:
+    if host in _RESERVED_EXACT:
+        return True
+    return any(host.endswith(suffix) for suffix in _RESERVED_SUFFIXES)
+
+
+def _is_ip_literal_obfuscation(host: str) -> bool:
+    """True when every dot-separated label is decimal/octal/hex.
+
+    Catches forms that ``ipaddress`` correctly refuses but down-stack HTTP
+    clients may still resolve (``127.1``, ``2130706433``, ``0x7f.0.0.1``).
+    """
+    return all(_NUMERIC_LABEL_RE.match(label) for label in host.split("."))
 
 
 def extract_and_normalize_domain(target: str) -> str:
@@ -70,8 +134,14 @@ def extract_and_normalize_domain(target: str) -> str:
     else:
         raise ValueError("target must not be an IP address")
 
+    if _is_ip_literal_obfuscation(value):
+        raise ValueError("target must not be an IP address")
+
     if not _HOSTNAME_RE.match(value):
         raise ValueError("target must contain a valid DNS hostname")
+
+    if _is_reserved_hostname(value):
+        raise ValueError("target must not be a reserved or special-use hostname")
 
     return value
 

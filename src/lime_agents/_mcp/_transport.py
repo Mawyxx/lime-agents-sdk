@@ -9,10 +9,27 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import ServerCapabilities
 
+from lime_agents._domain import extract_and_normalize_domain
+
 if TYPE_CHECKING:
     from lime_agents._oauth import _McpTokenIssuer
 
 logger = logging.getLogger("lime.agents.mcp")
+
+
+def _validate_url_policy(url: str) -> None:
+    """Validate an absolute MCP URL host against the reserved-host policy."""
+    extract_and_normalize_domain(url)
+
+
+async def _guard_response_url(response: httpx.Response) -> None:
+    """Re-validate the final response URL against the target host policy.
+
+    Redirects are disabled (``follow_redirects=False``); this hook keeps the
+    guarantee fail-closed if a future change or the MCP transport ever follows
+    one: a response from a reserved/special-use host raises ``ValueError``.
+    """
+    _validate_url_policy(str(response.url))
 
 
 class McpTransportHandle:
@@ -59,14 +76,16 @@ class McpTransportHandle:
         return await self._open(token.access_token)
 
     async def _open(self, access_token: str) -> ClientSession:
+        _validate_url_policy(self._server_url)
         self._stack = AsyncExitStack()
         self._server_capabilities = None
         timeout = httpx.Timeout(self._connect_timeout, read=self._read_timeout)
         self._http_client = httpx.AsyncClient(
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=timeout,
-            follow_redirects=True,
+            follow_redirects=False,
             trust_env=False,
+            event_hooks={"response": [_guard_response_url]},
         )
         await self._stack.enter_async_context(self._http_client)
         transport = await self._stack.enter_async_context(
