@@ -13,6 +13,7 @@ from lime_agents._errors import (
     LimeError,
     OAuthCapabilityError,
     RateLimitError,
+    map_envelope_error,
 )
 from lime_agents._types import McpAccessToken
 
@@ -184,6 +185,9 @@ class _McpTokenIssuer:
         if status == 429:
             raise RateLimitError(description, code=error, http_status=status)
 
+        if status == 403 and error == "access_denied":
+            raise OAuthCapabilityError(error, description, http_status=status)
+
         raise ApiError(error, description, http_status=status)
 
     def _raise_envelope_error(self, status: int, payload: dict[str, Any]) -> NoReturn:
@@ -205,18 +209,4 @@ class _McpTokenIssuer:
         detail = error.get("detail")
         detail_dict = detail if isinstance(detail, dict) else None
 
-        if status == 429 or code == "RATE_LIMIT_EXCEEDED":
-            raise RateLimitError(message, code=code, http_status=status, detail=detail_dict)
-
-        if code == "OAUTH_CAPABILITY_DENIED":
-            raise OAuthCapabilityError(
-                code,
-                message,
-                http_status=status,
-                detail=detail_dict,
-            )
-
-        if status == 401:
-            raise AuthenticationError(message, code=code, http_status=status, detail=detail_dict)
-
-        raise ApiError(code, message, http_status=status, detail=detail_dict)
+        raise map_envelope_error(status, code, message, detail_dict)

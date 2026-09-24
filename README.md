@@ -117,13 +117,18 @@ Never send `X-Agent-Token` to an MCP server. Never send the MCP JWT to LIME HTTP
 
 Use this when a **site backend** creates a login request and your worker only needs to approve it. The **site** receives the passport over SSE ([`lime-sites-sdk`](https://github.com/Mawyxx/lime-site-sdk)) — your worker does not.
 
+> **R-14 release note:** `lime-agents-sdk >= 3.0.1` solves the domain-separated digest
+> `SHA-256(b"lime:pow:v1\0" || challenge || 0x00 || nonce)` required by R-14 servers.
+> Earlier releases use the legacy formula and cannot approve logins.
+
 ```python
 import asyncio
 import os
 
 from lime_agents import LimeAgent, ApiError, PowTimeoutError
 
-REQUEST_ID = "lr_abc123"  # from your site / job queue
+# UUID from the site waiting screen / your queue (wire format)
+REQUEST_ID = "550e8400-e29b-41d4-a716-446655440000"
 
 
 async def main() -> None:
@@ -143,6 +148,14 @@ asyncio.run(main())
 ```
 
 Example: [`examples/site-login/`](examples/site-login/).
+
+> **Known limitation — `login()` recovery (ADR 0058):** the public challenge read
+> (`GET /api/v1/auth/requests/{id}`) returns **404** once the request is approved or
+> consumed. If an approve POST is processed but its response is lost (timeout), a
+> retry of `login(request_id)` cannot recover the outcome — do not loop, and treat
+> the site's SSE delivery as the source of truth. The agent lane has no status-poll
+> fallback: `GET /api/v1/modules/agent-login/requests/{id}` requires **`X-Site-Token`**
+> (site backend only).
 
 ---
 

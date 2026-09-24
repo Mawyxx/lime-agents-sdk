@@ -1,5 +1,34 @@
 # Changelog
 
+## 3.0.1
+
+### Fixed
+
+- PoW (audit R-14): `login()` now solves the server-verified domain-separated digest
+  `SHA-256(b"lime:pow:v1\0" || challenge || 0x00 || nonce)` instead of the legacy
+  `SHA-256(challenge + nonce)` concatenation. Servers running the R-14 verifier reject
+  the legacy digest, so **>= 3.0.1 is required** for site-login approve.
+- Typed agent-auth errors: HTTP **403** `AGENT_INACTIVE` -> `AgentInactiveError`,
+  403 `AGENT_USER_SUSPENDED` -> `AgentUserSuspendedError`, **503** `AUTH_UNAVAILABLE` ->
+  `AuthUnavailableError` (`AuthenticationError` / `ApiError` subclasses respectively).
+- RFC 6749 `{"error": "access_denied"}` (HTTP 403) on `POST /modules/oauth/token`
+  now maps to `OAuthCapabilityError`.
+- MCP transport teardown errors are now logged through the SDK logger instead of
+  being swallowed, and the no-op `try/finally` in `McpSessionPool.session()` is gone.
+
+### Changed
+
+- HTTP retries are idempotency-aware: `GET` keeps retrying 408/429/500/502/503/504,
+  while `POST` retries only 408/429/503 — a POST is never blind-replayed on 500/502/504
+  without an `Idempotency-Key`.
+- Envelope error mapping is a single owner (`lime_agents._errors.map_envelope_error`)
+  shared by the platform client and the OAuth token issuer.
+
+### Docs / DX
+
+- README site-login example uses the UUID wire format; documents the R-14 PoW
+  requirement and the known `login()` 404-after-approve recovery limitation (ADR 0058).
+
 ## 3.0.0 — Retire agent reputation field
 
 ### Breaking

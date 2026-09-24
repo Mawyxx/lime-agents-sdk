@@ -9,8 +9,10 @@ import pytest
 
 from lime_agents._client import LimeClient
 from lime_agents._errors import (
+    AgentInactiveError,
     ApiError,
     AuthenticationError,
+    AuthUnavailableError,
     LimeError,
     OAuthCapabilityError,
     RateLimitError,
@@ -183,16 +185,13 @@ async def test_oauth_invalid_request() -> None:
 
 
 @pytest.mark.asyncio
-async def test_oauth_capability_denied() -> None:
+async def test_oauth_capability_denied_rfc6749() -> None:
     response = httpx.Response(
         403,
         content=json.dumps(
             {
-                "ok": False,
-                "error": {
-                    "code": "OAUTH_CAPABILITY_DENIED",
-                    "message": "missing oauth:issue",
-                },
+                "error": "access_denied",
+                "error_description": "missing oauth:mcp grant",
             },
         ).encode(),
     )
@@ -200,7 +199,50 @@ async def test_oauth_capability_denied() -> None:
     issuer = _McpTokenIssuer(client)
     with pytest.raises(OAuthCapabilityError) as exc:
         await issuer.get_access_token("example.com")
-    assert exc.value.code == "OAUTH_CAPABILITY_DENIED"
+    assert exc.value.code == "access_denied"
+    assert exc.value.http_status == 403
+    assert exc.value.message == "missing oauth:mcp grant"
+    assert isinstance(exc.value, ApiError)
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_oauth_envelope_agent_inactive_typed() -> None:
+    response = httpx.Response(
+        403,
+        content=json.dumps(
+            {
+                "ok": False,
+                "error": {"code": "AGENT_INACTIVE", "message": "agent is inactive"},
+            },
+        ).encode(),
+    )
+    client = _client_with_response(response)
+    issuer = _McpTokenIssuer(client)
+    with pytest.raises(AgentInactiveError) as exc:
+        await issuer.get_access_token("example.com")
+    assert exc.value.code == "AGENT_INACTIVE"
+    assert exc.value.http_status == 403
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_oauth_envelope_auth_unavailable_typed() -> None:
+    response = httpx.Response(
+        503,
+        content=json.dumps(
+            {
+                "ok": False,
+                "error": {"code": "AUTH_UNAVAILABLE", "message": "auth unavailable"},
+            },
+        ).encode(),
+    )
+    client = _client_with_response(response)
+    issuer = _McpTokenIssuer(client)
+    with pytest.raises(AuthUnavailableError) as exc:
+        await issuer.get_access_token("example.com")
+    assert exc.value.code == "AUTH_UNAVAILABLE"
+    assert exc.value.http_status == 503
     await client.aclose()
 
 

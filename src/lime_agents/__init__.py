@@ -14,8 +14,11 @@ from mcp.types import (
 from lime_agents._agent import LimeAgent
 from lime_agents._domain import extract_and_normalize_domain, resolve_mcp_http_url
 from lime_agents._errors import (
+    AgentInactiveError,
+    AgentUserSuspendedError,
     ApiError,
     AuthenticationError,
+    AuthUnavailableError,
     LimeError,
     McpAuthenticationError,
     OAuthCapabilityError,
@@ -24,12 +27,15 @@ from lime_agents._errors import (
 )
 from lime_agents._types import AgentProfile, ApprovalResult, McpAccessToken
 
-__version__ = "2.0.0"
+__version__ = "3.0.1"
 
 __all__ = [
+    "AgentInactiveError",
     "AgentProfile",
+    "AgentUserSuspendedError",
     "ApiError",
     "ApprovalResult",
+    "AuthUnavailableError",
     "AuthenticationError",
     "CallToolResult",
     "GetPromptResult",

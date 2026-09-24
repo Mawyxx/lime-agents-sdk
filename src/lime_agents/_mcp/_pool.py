@@ -114,10 +114,7 @@ class McpSessionPool:
         async with entry.lock:
             async with entry.connect_lock:
                 mcp_session = await entry.transport.ensure_open()
-            try:
-                yield mcp_session
-            finally:
-                pass
+            yield mcp_session
 
     async def refresh_all_tokens(self) -> None:
         await self._token_issuer.invalidate_all()

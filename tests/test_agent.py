@@ -17,7 +17,9 @@ def _solve_for_test(challenge: str, difficulty: int) -> str:
     nonce = 0
     while nonce < 1_000_000:
         candidate = str(nonce)
-        digest = hashlib.sha256(f"{challenge}{candidate}".encode()).hexdigest()
+        digest = hashlib.sha256(
+            b"lime:pow:v1\0" + challenge.encode() + b"\0" + candidate.encode()
+        ).hexdigest()
         if int(digest, 16) < threshold:
             return candidate
         nonce += 1

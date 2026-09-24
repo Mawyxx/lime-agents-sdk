@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING
 
@@ -10,6 +11,8 @@ from mcp.types import ServerCapabilities
 
 if TYPE_CHECKING:
     from lime_agents._oauth import _McpTokenIssuer
+
+logger = logging.getLogger("lime.agents.mcp")
 
 
 class McpTransportHandle:
@@ -84,6 +87,6 @@ class McpTransportHandle:
         self._server_capabilities = None
         try:
             await self._stack.aclose()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("MCP transport close error: %s", exc)
         self._stack = AsyncExitStack()

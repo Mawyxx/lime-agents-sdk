@@ -11,7 +11,9 @@ from lime_agents._pow import solve
 def _verify_pow(challenge: str, nonce: str, difficulty: int) -> bool:
     if difficulty <= 0:
         return True
-    digest_hex = hashlib.sha256(f"{challenge}{nonce}".encode()).hexdigest()
+    digest_hex = hashlib.sha256(
+        b"lime:pow:v1\0" + challenge.encode() + b"\0" + nonce.encode()
+    ).hexdigest()
     threshold = 2 ** (256 - difficulty)
     return int(digest_hex, 16) < threshold
 

@@ -7,7 +7,15 @@ import httpx
 import pytest
 
 from lime_agents._client import LimeClient
-from lime_agents._errors import ApiError, AuthenticationError, LimeError, RateLimitError
+from lime_agents._errors import (
+    AgentInactiveError,
+    AgentUserSuspendedError,
+    ApiError,
+    AuthenticationError,
+    AuthUnavailableError,
+    LimeError,
+    RateLimitError,
+)
 
 
 def _envelope_ok(data: dict[str, Any]) -> bytes:
@@ -139,6 +147,57 @@ async def test_authentication_error(client_factory) -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_inactive_maps_to_typed_error(client_factory) -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            content=_envelope_err("AGENT_INACTIVE", "agent is inactive"),
+        )
+
+    client = client_factory(httpx.MockTransport(handler))
+    with pytest.raises(AgentInactiveError) as exc:
+        await client.get("/core/agents/me/profile")
+    assert exc.value.code == "AGENT_INACTIVE"
+    assert exc.value.http_status == 403
+    assert isinstance(exc.value, AuthenticationError)
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_agent_user_suspended_maps_to_typed_error(client_factory) -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            content=_envelope_err("AGENT_USER_SUSPENDED", "user suspended"),
+        )
+
+    client = client_factory(httpx.MockTransport(handler))
+    with pytest.raises(AgentUserSuspendedError) as exc:
+        await client.get("/core/agents/me/profile")
+    assert exc.value.code == "AGENT_USER_SUSPENDED"
+    assert exc.value.http_status == 403
+    assert isinstance(exc.value, AuthenticationError)
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_auth_unavailable_maps_to_typed_error(client_factory) -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            503,
+            content=_envelope_err("AUTH_UNAVAILABLE", "auth unavailable"),
+        )
+
+    client = client_factory(httpx.MockTransport(handler))
+    with pytest.raises(AuthUnavailableError) as exc:
+        await client.get("/core/agents/me/profile")
+    assert exc.value.code == "AUTH_UNAVAILABLE"
+    assert exc.value.http_status == 503
+    assert isinstance(exc.value, ApiError)
+    await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_retry_on_503_then_success(client_factory) -> None:
     calls = {"n": 0}
 
@@ -152,6 +211,55 @@ async def test_retry_on_503_then_success(client_factory) -> None:
     data = await client.get("/core/agents/me/profile")
     assert data == {"ok_field": 1}
     assert calls["n"] == 2
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_post_503_is_retried_then_succeeds(client_factory) -> None:
+    calls = {"n": 0}
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(503, content=_envelope_err("UNAVAILABLE", "try again"))
+        return httpx.Response(200, content=_envelope_ok({"status": "DELIVERED"}))
+
+    client = client_factory(httpx.MockTransport(handler))
+    data = await client.post("/modules/agent-login/requests/lr_1/approve", {"pow_nonce": "1"})
+    assert data == {"status": "DELIVERED"}
+    assert calls["n"] == 2
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_post_500_is_not_retried(client_factory) -> None:
+    calls = {"n": 0}
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(500, content=_envelope_err("INTERNAL_ERROR", "boom"))
+
+    client = client_factory(httpx.MockTransport(handler))
+    with pytest.raises(ApiError) as exc:
+        await client.post("/modules/agent-login/requests/lr_1/approve", {"pow_nonce": "1"})
+    assert exc.value.http_status == 500
+    assert calls["n"] == 1
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_get_500_retries_then_raises(client_factory) -> None:
+    calls = {"n": 0}
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(500, content=_envelope_err("INTERNAL_ERROR", "boom"))
+
+    client = client_factory(httpx.MockTransport(handler))
+    with pytest.raises(ApiError) as exc:
+        await client.get("/core/agents/me/profile")
+    assert exc.value.http_status == 500
+    assert calls["n"] == 3
     await client.aclose()
 
 
