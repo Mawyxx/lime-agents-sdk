@@ -4,7 +4,7 @@ import logging
 from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING
 
-import httpx
+import httpx2
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import ServerCapabilities
@@ -22,7 +22,7 @@ def _validate_url_policy(url: str) -> None:
     extract_and_normalize_domain(url)
 
 
-async def _guard_response_url(response: httpx.Response) -> None:
+async def _guard_response_url(response: httpx2.Response) -> None:
     """Re-validate the final response URL against the target host policy.
 
     Redirects are disabled (``follow_redirects=False``); this hook keeps the
@@ -50,7 +50,7 @@ class McpTransportHandle:
         self._connect_timeout = connect_timeout
         self._read_timeout = read_timeout
         self._stack = AsyncExitStack()
-        self._http_client: httpx.AsyncClient | None = None
+        self._http_client: httpx2.AsyncClient | None = None
         self._session: ClientSession | None = None
         self._token_generation = -1
         self._server_capabilities: ServerCapabilities | None = None
@@ -79,8 +79,8 @@ class McpTransportHandle:
         _validate_url_policy(self._server_url)
         self._stack = AsyncExitStack()
         self._server_capabilities = None
-        timeout = httpx.Timeout(self._connect_timeout, read=self._read_timeout)
-        self._http_client = httpx.AsyncClient(
+        timeout = httpx2.Timeout(self._connect_timeout, read=self._read_timeout)
+        self._http_client = httpx2.AsyncClient(
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=timeout,
             follow_redirects=False,
@@ -91,7 +91,7 @@ class McpTransportHandle:
         transport = await self._stack.enter_async_context(
             streamable_http_client(self._server_url, http_client=self._http_client),
         )
-        read_stream, write_stream, _get_session_id = transport
+        read_stream, write_stream = transport
         session = await self._stack.enter_async_context(ClientSession(read_stream, write_stream))
         init_result = await session.initialize()
         self._server_capabilities = init_result.capabilities

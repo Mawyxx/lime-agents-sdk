@@ -52,7 +52,7 @@ def _mock_mcp_session() -> AsyncMock:
     session.list_tools.return_value = MagicMock(tools=[MagicMock(name="echo")])
     session.call_tool.return_value = MagicMock(is_error=False, content=[])
     session.list_resources.return_value = MagicMock(resources=[])
-    session.list_resource_templates.return_value = MagicMock(resourceTemplates=[])
+    session.list_resource_templates.return_value = MagicMock(resource_templates=[])
     session.list_prompts.return_value = MagicMock(prompts=[])
     session.read_resource.return_value = MagicMock(contents=[])
     session.get_prompt.return_value = MagicMock(messages=[])
@@ -72,7 +72,7 @@ async def _mcp_transport_patches(session: AsyncMock):
         http_client: Any = None,
         terminate_on_close: bool = True,
     ):
-        yield MagicMock(), MagicMock(), lambda: "sid"
+        yield MagicMock(), MagicMock()
 
     @asynccontextmanager
     async def fake_client_session(read_stream: Any, write_stream: Any):
@@ -243,7 +243,7 @@ async def test_mcp_session_cached() -> None:
         http_client: Any = None,
         terminate_on_close: bool = True,
     ):
-        yield MagicMock(), MagicMock(), lambda: "sid"
+        yield MagicMock(), MagicMock()
 
     @asynccontextmanager
     async def counting_session(read_stream: Any, write_stream: Any):
@@ -273,7 +273,7 @@ async def test_mcp_multiple_servers() -> None:
         http_client: Any = None,
         terminate_on_close: bool = True,
     ):
-        yield MagicMock(), MagicMock(), lambda: "sid"
+        yield MagicMock(), MagicMock()
 
     @asynccontextmanager
     async def counting_session(read_stream: Any, write_stream: Any):

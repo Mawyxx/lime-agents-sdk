@@ -66,7 +66,7 @@ def _mock_transport_stack(
     ):
         read_stream = MagicMock()
         write_stream = MagicMock()
-        yield read_stream, write_stream, lambda: "sid"
+        yield read_stream, write_stream
 
     @asynccontextmanager
     async def fake_client_session(read_stream: Any, write_stream: Any):
@@ -407,7 +407,7 @@ async def test_pool_parallel_different_urls_concurrent() -> None:
         urls_seen.add(url)
         read_stream = MagicMock()
         write_stream = MagicMock()
-        yield read_stream, write_stream, lambda: "sid"
+        yield read_stream, write_stream
 
     issuer = _make_issuer()
 

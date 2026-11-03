@@ -283,7 +283,7 @@ class LimeAgent:
             lambda session: session.list_resource_templates(),
             retry_on_auth=_MCP_RETRY_ON_AUTH,
         )
-        return list(result.resourceTemplates)
+        return list(result.resource_templates)
 
     async def list_prompts(self, target: str) -> list[Prompt]:
         """List prompt templates on an external MCP server.

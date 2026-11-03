@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import httpx
+import httpx2
 import pytest
 from mcp.types import Implementation, InitializeResult, ServerCapabilities
 
@@ -44,7 +44,7 @@ async def test_transport_reuses_open_session() -> None:
         http_client: Any = None,
         terminate_on_close: bool = True,
     ):
-        yield MagicMock(), MagicMock(), lambda: "sid"
+        yield MagicMock(), MagicMock()
 
     @asynccontextmanager
     async def fake_client_session(read_stream: Any, write_stream: Any):
@@ -96,9 +96,9 @@ async def test_transport_rejects_reserved_host_before_network() -> None:
 
 @pytest.mark.asyncio
 async def test_guard_response_url_rejects_reserved_final_url() -> None:
-    response = httpx.Response(
+    response = httpx2.Response(
         200,
-        request=httpx.Request("GET", "https://127.0.0.1.nip.io/steal"),
+        request=httpx2.Request("GET", "https://127.0.0.1.nip.io/steal"),
     )
     with pytest.raises(ValueError, match="reserved"):
         await _guard_response_url(response)
@@ -106,9 +106,9 @@ async def test_guard_response_url_rejects_reserved_final_url() -> None:
 
 @pytest.mark.asyncio
 async def test_guard_response_url_allows_public_final_url() -> None:
-    response = httpx.Response(
+    response = httpx2.Response(
         200,
-        request=httpx.Request("GET", "https://mcp.lime.pics/mcp"),
+        request=httpx2.Request("GET", "https://mcp.lime.pics/mcp"),
     )
     await _guard_response_url(response)
 
@@ -132,19 +132,19 @@ async def test_transport_does_not_follow_redirects() -> None:
     requested: list[str] = []
     captured: dict[str, Any] = {}
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         requested.append(str(request.url))
-        return httpx.Response(
+        return httpx2.Response(
             302,
             headers={"Location": "https://metadata.google.internal/steal"},
         )
 
-    real_async_client = httpx.AsyncClient
+    real_async_client = httpx2.AsyncClient
 
-    def client_factory(**kwargs: Any) -> httpx.AsyncClient:
+    def client_factory(**kwargs: Any) -> httpx2.AsyncClient:
         captured["follow_redirects"] = kwargs.get("follow_redirects")
         captured["event_hooks"] = kwargs.get("event_hooks")
-        return real_async_client(transport=httpx.MockTransport(handler), **kwargs)
+        return real_async_client(transport=httpx2.MockTransport(handler), **kwargs)
 
     @asynccontextmanager
     async def fake_streamable_http_client(
@@ -154,14 +154,14 @@ async def test_transport_does_not_follow_redirects() -> None:
         terminate_on_close: bool = True,
     ):
         captured["response"] = await http_client.get(url)
-        yield MagicMock(), MagicMock(), lambda: "sid"
+        yield MagicMock(), MagicMock()
 
     @asynccontextmanager
     async def fake_client_session(read_stream: Any, write_stream: Any):
         yield session
 
     with (
-        patch("lime_agents._mcp._transport.httpx.AsyncClient", new=client_factory),
+        patch("lime_agents._mcp._transport.httpx2.AsyncClient", new=client_factory),
         patch("lime_agents._mcp._transport.streamable_http_client", fake_streamable_http_client),
         patch("lime_agents._mcp._transport.ClientSession", fake_client_session),
     ):

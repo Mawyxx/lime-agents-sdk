@@ -1,5 +1,22 @@
 # Changelog
 
+## 4.0.0
+
+### Changed
+
+- MCP client upgraded to `mcp>=2.3,<3`; MCP streamable HTTP now runs on
+  `httpx2` (the transport shipped with `mcp` 2.x), not `httpx`.
+- MCP model access uses the v2 snake_case attributes (for example
+  `ListResourceTemplatesResult.resource_templates`, `CallToolResult.is_error`).
+  Wire JSON remains camelCase.
+- Python floor raised to **3.11+** (`httpx2` requires it).
+
+### Unchanged
+
+- LIME control-plane HTTP (`LimeClient`, MCP token issuer) stays on `httpx`;
+  only the MCP wire transport uses `httpx2`.
+- Public API names and method signatures are unchanged.
+
 ## 3.0.2
 
 ### Security
